@@ -72,10 +72,11 @@ init([accept, Module, Transport, Handlers]) ->
              },
     {ok, awaiting_setup, Data};
 
-init([initiate, Module, Transport]) ->
+init([initiate, Module, Transport, Handlers]) ->
     Data = #data{
               transport_mod = Module,
-              transport_pid = Transport
+              transport_pid = Transport,
+              stream_handlers = Handlers
              },
     gen_statem:cast(self(), send_setup),
     {ok, setup_connection, Data}.
