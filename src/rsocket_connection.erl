@@ -21,7 +21,8 @@
 %% gen_statem states
 -export([
          setup_connection/3,
-         awaiting_setup/3
+         awaiting_setup/3,
+         connected/3
         ]).
 
 
@@ -133,6 +134,7 @@ setup_connection(cast, {recv, Frame}, Data) ->
             {stop, invalid_setup}
     end.
 
+
 awaiting_setup(cast, close_connection, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Mod:close_connection(Pid),
@@ -154,6 +156,10 @@ awaiting_setup(cast, {recv, Frame}, Data) ->
 
 awaiting_setup({call, Caller}, _Msg, Data) ->
     {next_state, awaiting_setup, Data, [{reply, Caller, ok}]}.
+
+
+connected({call, Caller}, _Msg, Data) ->
+    {next_state, connected, Data, [{reply, Caller, ok}]}.
 
 
 %%%===================================================================
