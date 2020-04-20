@@ -39,8 +39,8 @@ all() ->
 test_open_close_connection(_Config) ->
     Self = self(),
     Ref = make_ref(),
-    AtConnect = fun() -> Self ! {connected, Ref} end,
-    {ok, Listener} = rsocket_loopback:start_listener(AtConnect),
+    Config = #{ at_connect => fun() -> Self ! {connected, Ref} end },
+    {ok, Listener} = rsocket_loopback:start_listener(Config),
     {ok, Connection} = rsocket_loopback:connect(Listener),
     receive
         {connected, Ref} ->

@@ -21,16 +21,22 @@
 %%%===================================================================
 
 start_listener() ->
-    start_listener(fun() -> ok end).
+    Config = #{ at_connect => fun() -> ok end,
+                handlers => #{}
+              },
+    start_listener(Config).
 
-start_listener(AtConnect) ->
-    {ok, spawn(fun() -> accept_connection(AtConnect) end)}.
+start_listener(Config) ->
+    {ok, spawn(fun() -> accept_connection(Config) end)}.
 
 connect(Pid) ->
-    connect(Pid, fun() -> ok end).
+    Config = #{ at_connect => fun() -> ok end,
+                handlers => #{}
+              },
+    connect(Pid, Config).
 
-connect(Pid, AtConnect) ->
-    {ok, spawn(fun() -> initiate_connection(Pid, AtConnect) end)}.
+connect(Pid, Config) ->
+    {ok, spawn(fun() -> initiate_connection(Pid, Config) end)}.
 
 
 %%%===================================================================
@@ -50,7 +56,7 @@ close_connection(Connection) ->
 %%% Internal functions
 %%%===================================================================
 
-accept_connection(AtConnect) ->
+accept_connection(#{at_connect := AtConnect}) ->
     receive
         {connect, Pid} ->
             {ok, RSocket} = rsocket_transport:accept_connection(?MODULE),
@@ -58,7 +64,7 @@ accept_connection(AtConnect) ->
             loop(#{pid => Pid, rsocket => RSocket})
     end.
 
-initiate_connection(Pid, AtConnect) ->
+initiate_connection(Pid, #{at_connect := AtConnect}) ->
     Pid ! {connect, self()},
     {ok, RSocket} = rsocket_transport:initiate_connection(?MODULE),
     AtConnect(),
