@@ -3,15 +3,11 @@
 %%%
 %%% rsocket_transport is the API module for RSocket transport implementations
 %%%
-%%
-%% A transport implementation must:
-%% 1. ...
-%%
 
 %% API
 -export([
-         accept_connection/1,
-         initiate_connection/1,
+         accept_connection/2,
+         initiate_connection/2,
          recv_frame/2
         ]).
 
@@ -24,13 +20,15 @@
 %%% API
 %%%===================================================================
 
--spec accept_connection(Module :: atom()) -> {ok, Connection :: term()}.
-accept_connection(Module) ->
-    rsocket_connection_sup:accept_connection(Module, self()).
+-spec accept_connection(Module :: atom(), Handlers :: map()) ->
+          {ok, Connection :: term()}.
+accept_connection(Module, Handlers) ->
+    rsocket_connection_sup:accept_connection(Module, self(), Handlers).
 
--spec initiate_connection(Module :: atom()) -> {ok, Connection :: term()}.
-initiate_connection(Module) ->
-    rsocket_connection_sup:initiate_connection(Module, self()).
+-spec initiate_connection(Module :: atom(), Handlers :: map()) ->
+          {ok, Connection :: term()}.
+initiate_connection(Module, Handlers) ->
+    rsocket_connection_sup:initiate_connection(Module, self(), Handlers).
 
 -spec recv_frame(RSocket :: term(), Frame :: binary()) -> ok.
 recv_frame(RSocket, Frame) ->

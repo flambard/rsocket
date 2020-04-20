@@ -5,7 +5,7 @@
 
 %% API
 -export([
-         start_link/3,
+         start_link/4,
          recv_frame/2,
          close/1
         ]).
@@ -29,7 +29,8 @@
 -record(data,
         {
          transport_pid,
-         transport_mod
+         transport_mod,
+         stream_handlers
         }).
 
 
@@ -39,12 +40,13 @@
 
 -spec start_link(Mode :: accept | initiate,
                  Module :: atom(),
-                 Transport :: pid()) ->
+                 Transport :: pid(),
+                 Handlers :: map()) ->
           {ok, Pid :: pid()} |
           ignore |
           {error, Error :: term()}.
-start_link(Mode, Module, Transport) ->
-    gen_statem:start_link(?MODULE, [Mode, Module, Transport], []).
+start_link(Mode, Module, Transport, Handlers) ->
+    gen_statem:start_link(?MODULE, [Mode, Module, Transport, Handlers], []).
 
 recv_frame(Server, Frame) ->
     gen_statem:cast(Server, {recv, Frame}).
@@ -62,10 +64,11 @@ callback_mode() -> state_functions.
 
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([accept, Module, Transport]) ->
+init([accept, Module, Transport, Handlers]) ->
     Data = #data{
               transport_mod = Module,
-              transport_pid = Transport
+              transport_pid = Transport,
+              stream_handlers = Handlers
              },
     {ok, awaiting_setup, Data};
 

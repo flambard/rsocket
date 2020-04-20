@@ -56,17 +56,18 @@ close_connection(Connection) ->
 %%% Internal functions
 %%%===================================================================
 
-accept_connection(#{at_connect := AtConnect}) ->
+accept_connection(#{at_connect := AtConnect, handlers := Handlers}) ->
     receive
         {connect, Pid} ->
-            {ok, RSocket} = rsocket_transport:accept_connection(?MODULE),
+            {ok, RSocket} =
+                rsocket_transport:accept_connection(?MODULE, Handlers),
             AtConnect(),
             loop(#{pid => Pid, rsocket => RSocket})
     end.
 
-initiate_connection(Pid, #{at_connect := AtConnect}) ->
+initiate_connection(Pid, #{at_connect := AtConnect, handlers := Handlers}) ->
     Pid ! {connect, self()},
-    {ok, RSocket} = rsocket_transport:initiate_connection(?MODULE),
+    {ok, RSocket} = rsocket_transport:initiate_connection(?MODULE, Handlers),
     AtConnect(),
     loop(#{pid => Pid, rsocket => RSocket}).
 
