@@ -36,7 +36,14 @@ connect(Pid) ->
     connect(Pid, Config).
 
 connect(Pid, Config) ->
-    {ok, spawn(fun() -> initiate_connection(Pid, Config) end)}.
+    Self = self(),
+    spawn(fun() -> initiate_connection(Pid, Self, Config) end),
+    receive
+        {rsocket, RSocket} ->
+            {ok, RSocket}
+    after 1000 ->
+            {error, failed_to_connect}
+    end.
 
 
 %%%===================================================================
@@ -56,7 +63,8 @@ close_connection(Connection) ->
 %%% Internal functions
 %%%===================================================================
 
-accept_connection(#{at_connect := AtConnect, handlers := Handlers}) ->
+accept_connection(Config = #{handlers := Handlers}) ->
+    AtConnect = maps:get(at_connect, Config, fun() -> ok end),
     receive
         {connect, Pid} ->
             {ok, RSocket} =
@@ -65,9 +73,11 @@ accept_connection(#{at_connect := AtConnect, handlers := Handlers}) ->
             loop(#{pid => Pid, rsocket => RSocket})
     end.
 
-initiate_connection(Pid, #{at_connect := AtConnect, handlers := Handlers}) ->
+initiate_connection(Pid, Application, Config = #{handlers := Handlers}) ->
     Pid ! {connect, self()},
     {ok, RSocket} = rsocket_transport:initiate_connection(?MODULE, Handlers),
+    Application ! {rsocket, RSocket},
+    AtConnect = maps:get(at_connect, Config, fun() -> ok end),
     AtConnect(),
     loop(#{pid => Pid, rsocket => RSocket}).
 

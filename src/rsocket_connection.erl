@@ -7,6 +7,7 @@
 -export([
          start_link/4,
          recv_frame/2,
+         send_fnf/2,
          close/1
         ]).
 
@@ -50,6 +51,9 @@ start_link(Mode, Module, Transport, Handlers) ->
 
 recv_frame(Server, Frame) ->
     gen_statem:cast(Server, {recv, Frame}).
+
+send_fnf(Server, Message) ->
+    gen_statem:cast(Server, {send_fnf, Message}).
 
 close(Server) ->
     gen_statem:cast(Server, close_connection).
@@ -105,38 +109,8 @@ setup_connection(cast, send_setup, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Setup = ?RSOCKET_SETUP(0, 2, 30000, 40000, <<>>),
     Frame = ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_SETUP, 0, 0, 0, Setup),
-    Mod:send_frame(Pid, Frame),
-    {next_state, setup_connection, Data};
-
-setup_connection(cast, {recv, Frame}, Data) ->
-    ?RSOCKET_FRAME_HEADER(
-       StreamID, FrameType, IgnoreFlag, MetadataFlag, OtherFlags, FramePayload
-      ) = Frame,
-    case {StreamID, FrameType} of
-        {0, ?FRAME_TYPE_ERROR} ->
-            {stop, invalid_setup};
-        {0, ?FRAME_TYPE_LEASE} ->
-            %% TODO: set up a lease
-            {next_state, connected, Data};
-        {0, ?FRAME_TYPE_REQUEST_RESPONSE} ->
-            %% TODO: start a single-response request
-            {next_state, connected, Data};
-        {0, ?FRAME_TYPE_REQUEST_FNF} ->
-            %% TODO: start a fire-and-forget request
-            {next_state, connected, Data};
-        {0, ?FRAME_TYPE_REQUEST_STREAM} ->
-            %% TODO: start a stream
-            {next_state, connected, Data};
-        {0, ?FRAME_TYPE_REQUEST_CHANNEL} ->
-            %% TODO: start a channel
-            {next_state, connected, Data};
-        {0, ?FRAME_TYPE_REQUEST_N} ->
-            %% TODO: top-up the request credit
-            {next_state, connected, Data};
-        _ ->
-            %% TODO: send ERROR[INVALID_SETUP]
-            {stop, invalid_setup}
-    end.
+    ok = Mod:send_frame(Pid, Frame),
+    {next_state, connected, Data}.
 
 
 awaiting_setup(cast, close_connection, Data) ->
@@ -161,6 +135,35 @@ awaiting_setup(cast, {recv, Frame}, Data) ->
 awaiting_setup({call, Caller}, _Msg, Data) ->
     {next_state, awaiting_setup, Data, [{reply, Caller, ok}]}.
 
+
+connected(cast, {recv, Frame}, Data) ->
+    ?RSOCKET_FRAME_HEADER(
+       StreamID, FrameType, IgnoreFlag, MetadataFlag, OtherFlags, FramePayload
+      ) = Frame,
+    case {StreamID, FrameType} of
+        {_, ?FRAME_TYPE_REQUEST_FNF} ->
+            case maps:find(fire_and_forget, Data#data.stream_handlers) of
+                error ->
+                    %% TODO: Send REJECT
+                    {keep_state, Data};
+                {ok, {Mod, Fun, Args}} ->
+                    %% TODO: Not yet supported, send REJECT
+                    {keep_state, Data};
+                {ok, FnfHandler} when is_function(FnfHandler, 1) ->
+                    proc_lib:spawn(fun() -> FnfHandler(FramePayload) end),
+                    {keep_state, Data}
+            end;
+        _ ->
+            {stop, unexpected_message}
+    end;
+
+connected(cast, {send_fnf, Message}, Data) ->
+    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
+    Fnf = ?RSOCKET_REQUEST_FNF(Message),
+    %% TODO: Set up the frame header correctly
+    Frame = ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_REQUEST_FNF, 0, 0, 0, Fnf),
+    ok = Mod:send_frame(Pid, Frame),
+    {next_state, connected, Data};
 
 connected({call, Caller}, _Msg, Data) ->
     {next_state, connected, Data, [{reply, Caller, ok}]}.

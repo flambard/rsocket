@@ -68,3 +68,9 @@
           (ResumeIdentificationToken)  /binary
         >>
        ).
+
+-define(RSOCKET_REQUEST_FNF(Message),
+        <<
+          (Message) /binary
+        >>
+       ).
