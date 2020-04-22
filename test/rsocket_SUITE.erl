@@ -33,21 +33,23 @@ groups() ->
 all() ->
     [
      test_open_close_connection,
-     test_client_fnf
+     test_client_fnf,
+     test_server_fnf
     ].
 
 
 test_open_close_connection(_Config) ->
     Self = self(),
     Ref = make_ref(),
-    Config = #{ at_connect => fun() -> Self ! {connected, Ref} end,
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    Config = #{ at_connect => AtConnectFun,
                 handlers => #{}
               },
     {ok, Listener} = rsocket_loopback:start_listener(Config),
-    {ok, RSocket} = rsocket_loopback:connect(Listener),
+    {ok, ClientRSocket} = rsocket_loopback:connect(Listener),
     receive
-        {connected, Ref} ->
-            ok = rsocket:close_connection(RSocket)
+        {connected, Ref, _ServerRSocket} ->
+            ok = rsocket:close_connection(ClientRSocket)
     after 10000 ->
             exit(connection_failed)
     end.
@@ -67,4 +69,27 @@ test_client_fnf(_Config) ->
             ok = rsocket:close_connection(RSocket)
     after 1000 ->
             exit(did_not_handle_fnf_request)
+    end.
+
+test_server_fnf(_Config) ->
+    Self = self(),
+    Ref = make_ref(),
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    FnfHandler = fun(Message) -> Self ! {fnf, Ref, Message} end,
+    ClientConfig = #{ handlers => #{ fire_and_forget => FnfHandler }},
+    ServerConfig = #{ at_connect => AtConnectFun },
+    {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
+    {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
+    receive
+        {connected, Ref, ServerRSocket} ->
+            Message = <<"The Message">>,
+            ok = rsocket:cast(ServerRSocket, Message),
+            receive
+                {fnf, Ref, Message} ->
+                    ok = rsocket:close_connection(ClientRSocket)
+            after 1000 ->
+                    exit(did_not_handle_fnf_request)
+            end
+    after 10000 ->
+            exit(connection_failed)
     end.

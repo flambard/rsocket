@@ -63,22 +63,22 @@ close_connection(Connection) ->
 %%% Internal functions
 %%%===================================================================
 
-accept_connection(Config = #{handlers := Handlers}) ->
-    AtConnect = maps:get(at_connect, Config, fun() -> ok end),
+accept_connection(Config) ->
+    AtConnect = maps:get(at_connect, Config, fun(_) -> ok end),
+    Handlers = maps:get(handlers, Config, #{}),
     receive
         {connect, Pid} ->
             {ok, RSocket} =
                 rsocket_transport:accept_connection(?MODULE, Handlers),
-            AtConnect(),
+            AtConnect(RSocket),
             loop(#{pid => Pid, rsocket => RSocket})
     end.
 
-initiate_connection(Pid, Application, Config = #{handlers := Handlers}) ->
+initiate_connection(Pid, Application, Config) ->
     Pid ! {connect, self()},
+    Handlers = maps:get(handlers, Config, #{}),
     {ok, RSocket} = rsocket_transport:initiate_connection(?MODULE, Handlers),
     Application ! {rsocket, RSocket},
-    AtConnect = maps:get(at_connect, Config, fun() -> ok end),
-    AtConnect(),
     loop(#{pid => Pid, rsocket => RSocket}).
 
 loop(State = #{pid := Pid, rsocket := RSocket}) ->
