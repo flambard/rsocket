@@ -33,7 +33,8 @@
         {
          transport_pid,
          transport_mod,
-         stream_handlers
+         stream_handlers,
+         next_stream_id
         }).
 
 
@@ -80,7 +81,8 @@ init([accept, Module, Transport, Handlers]) ->
     Data = #data{
               transport_mod = Module,
               transport_pid = Transport,
-              stream_handlers = Handlers
+              stream_handlers = Handlers,
+              next_stream_id = 2
              },
     {ok, awaiting_setup, Data};
 
@@ -88,7 +90,8 @@ init([initiate, Module, Transport, Handlers]) ->
     Data = #data{
               transport_mod = Module,
               transport_pid = Transport,
-              stream_handlers = Handlers
+              stream_handlers = Handlers,
+              next_stream_id = 1
              },
     gen_statem:cast(self(), send_setup),
     {ok, setup_connection, Data}.
@@ -190,16 +193,16 @@ connected(cast, {recv, Frame}, Data) ->
     end;
 
 connected(cast, {send_request_fnf, Message}, Data) ->
-    ID = 1, %% TODO: Generate the ID properly
+    ID = Data#data.next_stream_id,
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Fnf = ?RSOCKET_REQUEST_FNF(Message),
     %% TODO: Set up the frame header correctly
     Frame = ?RSOCKET_FRAME_HEADER(ID, ?FRAME_TYPE_REQUEST_FNF, 0, 0, 0, Fnf),
     ok = Mod:send_frame(Pid, Frame),
-    {next_state, connected, Data};
+    {next_state, connected, Data#data{ next_stream_id = ID + 2 }};
 
 connected(cast, {send_request_response, Request, Handler}, Data) ->
-    ID = 1, %% TODO: Generate the ID properly
+    ID = Data#data.next_stream_id,
     Self = self(),
     %% Start the handler process (with ID)
     proc_lib:spawn(fun() ->
@@ -216,7 +219,7 @@ connected(cast, {send_request_response, Request, Handler}, Data) ->
     %% TODO: Set up the frame header correctly
     Frame = ?RSOCKET_FRAME_HEADER(ID, ?FRAME_TYPE_REQUEST_RESPONSE, 0, 0, 0, RR),
     ok = Mod:send_frame(Pid, Frame),
-    {next_state, connected, Data};
+    {next_state, connected, Data#data{ next_stream_id = ID + 2 }};
 
 connected(cast, {send_payload, StreamID, Payload}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
