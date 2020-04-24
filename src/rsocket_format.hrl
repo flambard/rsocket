@@ -74,3 +74,15 @@
           (Message) /binary
         >>
        ).
+
+-define(RSOCKET_REQUEST_RESPONSE(Request),
+        <<
+          (Request) /binary
+        >>
+       ).
+
+-define(RSOCKET_PAYLOAD(Payload),
+        <<
+          (Payload) /binary
+        >>
+       ).
