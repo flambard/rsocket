@@ -216,10 +216,7 @@ connected(cast, {send_payload, StreamID, Payload}, Data) ->
 connected(cast, close_connection, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Mod:close_connection(Pid),
-    {stop, disconnect};
-
-connected({call, Caller}, _Msg, Data) ->
-    {keep_state, Data, [{reply, Caller, ok}]}.
+    {stop, disconnect}.
 
 
 %%%===================================================================
