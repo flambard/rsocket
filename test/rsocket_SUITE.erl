@@ -37,7 +37,8 @@ all() ->
      test_client_fnf,
      test_server_fnf,
      test_client_request_response,
-     test_server_request_response
+     test_server_request_response,
+     test_concurrent_client_request_responses
     ].
 
 
@@ -107,8 +108,8 @@ test_client_request_response(_Config) ->
     {ok, RSocket} = rsocket_loopback:connect(Listener),
     case rsocket:call(RSocket, Request) of
         {ok, Response} -> rsocket:close_connection(RSocket);
-        {error, _Reason} ->
-            exit({call_returned_error, _Reason});
+        {error, Reason} ->
+            exit({call_returned_error, Reason});
         _ ->
             exit(unexpected_return_value)
     end.
@@ -128,11 +129,41 @@ test_server_request_response(_Config) ->
         {connected, Ref, ServerRSocket} ->
             case rsocket:call(ServerRSocket, Request) of
                 {ok, Response} -> rsocket:close_connection(ClientRSocket);
-                {error, _Reason} ->
-                    exit({call_returned_error, _Reason});
+                {error, Reason} ->
+                    exit({call_returned_error, Reason});
                 _ ->
                     exit(unexpected_return_value)
             end
     after 10000 ->
             exit(connection_failed)
+    end.
+
+test_concurrent_client_request_responses(_Config) ->
+    Request1 = <<"PING1">>,
+    Request2 = <<"PING2">>,
+    ServerRRHandler = fun(Request) ->
+                              receive
+                              after 100 -> <<Request/binary, "PONG">>
+                              end
+                      end,
+    Response1 = <<Request1/binary, "PONG">>,
+    Response2 = <<Request2/binary, "PONG">>,
+    Config = #{ handlers => #{ request_response => ServerRRHandler }},
+    {ok, Listener} = rsocket_loopback:start_listener(Config),
+    {ok, RSocket} = rsocket_loopback:connect(Listener),
+    spawn_link(fun() ->
+                       case rsocket:call(RSocket, Request1) of
+                           {ok, Response1} -> ok;
+                           {error, Reason} ->
+                               exit({call_returned_error, Reason});
+                           _ ->
+                               exit(unexpected_return_value)
+                       end
+               end),
+    case rsocket:call(RSocket, Request2) of
+        {ok, Response2} -> ok;
+        {error, Reason} ->
+            exit({call_returned_error, Reason});
+        _ ->
+            exit(unexpected_return_value)
     end.
