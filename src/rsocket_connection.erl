@@ -118,8 +118,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 
 setup_connection(cast, send_setup, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    Setup = ?RSOCKET_SETUP(0, 2, 30000, 40000, <<>>),
-    Frame = ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_SETUP, 0, 0, 0, Setup),
+    Frame = rsocket_frame:new_setup(),
     ok = Mod:send_frame(Pid, Frame),
     {next_state, connected, Data}.
 
@@ -133,10 +132,10 @@ awaiting_setup(cast, {recv, Frame}, Data) ->
     ?RSOCKET_FRAME_HEADER(
        StreamID, FrameType, IgnoreFlag, MetadataFlag, OtherFlags, FramePayload
       ) = Frame,
-    case {StreamID, FrameType} of
-        {0, ?FRAME_TYPE_SETUP} ->
+    case FrameType of
+        ?FRAME_TYPE_SETUP when StreamID =:= 0 ->
             {next_state, connected, Data};
-        {0, ?FRAME_TYPE_RESUME} ->
+        ?FRAME_TYPE_RESUME when StreamID =:= 0 ->
             {next_state, connected, Data};
         _ ->
             %% TODO: send ERROR[INVALID_SETUP]
@@ -151,25 +150,25 @@ connected(cast, {recv, Frame}, Data) ->
     ?RSOCKET_FRAME_HEADER(
        StreamID, FrameType, IgnoreFlag, MetadataFlag, OtherFlags, FramePayload
       ) = Frame,
-    case {StreamID, FrameType} of
-        {_, ?FRAME_TYPE_REQUEST_FNF} ->
+    case FrameType of
+        ?FRAME_TYPE_REQUEST_FNF when StreamID =/= 0 ->
             case maps:find(fire_and_forget, Data#data.stream_handlers) of
                 error ->
                     %% TODO: Send REJECT
                     {keep_state, Data};
-                {ok, {Mod, Fun, Args}} ->
+                {ok, {_Mod, _Fun, _Args}} ->
                     %% TODO: Not yet supported, send REJECT
                     {keep_state, Data};
                 {ok, FnfHandler} when is_function(FnfHandler, 1) ->
                     proc_lib:spawn(fun() -> FnfHandler(FramePayload) end),
                     {keep_state, Data}
             end;
-        {_, ?FRAME_TYPE_REQUEST_RESPONSE} ->
+        ?FRAME_TYPE_REQUEST_RESPONSE when StreamID =/= 0 ->
             case maps:find(request_response, Data#data.stream_handlers) of
                 error ->
                     %% TODO: Send REJECT
                     {keep_state, Data};
-                {ok, {Mod, Fun, Args}} ->
+                {ok, {_Mod, _Fun, _Args}} ->
                     %% TODO: Not yet supported, send REJECT
                     {keep_state, Data};
                 {ok, RRHandler} when is_function(RRHandler, 1) ->
@@ -182,7 +181,7 @@ connected(cast, {recv, Frame}, Data) ->
                     %% TODO: send back the response
                     {keep_state, Data}
             end;
-        {_, ?FRAME_TYPE_PAYLOAD} ->
+        ?FRAME_TYPE_PAYLOAD when StreamID =/= 0 ->
             case gproc:where({n, l, {rsocket_stream, self(), StreamID}}) of
                 undefined -> ok;
                 Stream    -> Stream ! {recv_payload, FramePayload}
@@ -195,16 +194,13 @@ connected(cast, {recv, Frame}, Data) ->
 connected(cast, {send_request_fnf, Message}, Data) ->
     ID = Data#data.next_stream_id,
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    Fnf = ?RSOCKET_REQUEST_FNF(Message),
-    %% TODO: Set up the frame header correctly
-    Frame = ?RSOCKET_FRAME_HEADER(ID, ?FRAME_TYPE_REQUEST_FNF, 0, 0, 0, Fnf),
+    Frame = rsocket_frame:new_request_fnf(ID, Message),
     ok = Mod:send_frame(Pid, Frame),
     {next_state, connected, Data#data{ next_stream_id = ID + 2 }};
 
 connected(cast, {send_request_response, Request, Handler}, Data) ->
     ID = Data#data.next_stream_id,
     Self = self(),
-    %% Start the handler process (with ID)
     proc_lib:spawn(fun() ->
                            true = gproc:reg({n, l, {rsocket_stream, Self, ID}}),
                            receive
@@ -215,17 +211,13 @@ connected(cast, {send_request_response, Request, Handler}, Data) ->
                            end
                    end),
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    RR = ?RSOCKET_REQUEST_RESPONSE(Request),
-    %% TODO: Set up the frame header correctly
-    Frame = ?RSOCKET_FRAME_HEADER(ID, ?FRAME_TYPE_REQUEST_RESPONSE, 0, 0, 0, RR),
+    Frame = rsocket_frame:new_request_response(ID, Request),
     ok = Mod:send_frame(Pid, Frame),
     {next_state, connected, Data#data{ next_stream_id = ID + 2 }};
 
 connected(cast, {send_payload, StreamID, Payload}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    P = ?RSOCKET_PAYLOAD(Payload),
-    %% TODO: Set up the frame header correctly
-    Frame = ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, 0, 0, 0, P),
+    Frame = rsocket_frame:new_payload(StreamID, Payload),
     ok = Mod:send_frame(Pid, Frame),
     {next_state, connected, Data};
 
