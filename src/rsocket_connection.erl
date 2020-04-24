@@ -193,7 +193,7 @@ connected(cast, {send_request_fnf, Message}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Frame = rsocket_frame:new_request_fnf(ID, Message),
     ok = Mod:send_frame(Pid, Frame),
-    {next_state, connected, Data#data{ next_stream_id = ID + 2 }};
+    {keep_state, Data#data{ next_stream_id = ID + 2 }};
 
 connected(cast, {send_request_response, Request, Handler}, Data) ->
     ID = Data#data.next_stream_id,
@@ -210,16 +210,16 @@ connected(cast, {send_request_response, Request, Handler}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Frame = rsocket_frame:new_request_response(ID, Request),
     ok = Mod:send_frame(Pid, Frame),
-    {next_state, connected, Data#data{ next_stream_id = ID + 2 }};
+    {keep_state, Data#data{ next_stream_id = ID + 2 }};
 
 connected(cast, {send_payload, StreamID, Payload}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Frame = rsocket_frame:new_payload(StreamID, Payload),
     ok = Mod:send_frame(Pid, Frame),
-    {next_state, connected, Data};
+    {keep_state, Data};
 
 connected({call, Caller}, _Msg, Data) ->
-    {next_state, connected, Data, [{reply, Caller, ok}]}.
+    {keep_state, Data, [{reply, Caller, ok}]}.
 
 
 %%%===================================================================
