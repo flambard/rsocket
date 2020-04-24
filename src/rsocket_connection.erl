@@ -121,11 +121,6 @@ setup_connection(cast, send_setup, Data) ->
     {next_state, connected, Data}.
 
 
-awaiting_setup(cast, close_connection, Data) ->
-    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    Mod:close_connection(Pid),
-    {stop, disconnect};
-
 awaiting_setup(cast, {recv, Frame}, Data) ->
     case rsocket_frame:parse(Frame) of
         {ok, {setup, 0}} ->
@@ -217,6 +212,11 @@ connected(cast, {send_payload, StreamID, Payload}, Data) ->
     Frame = rsocket_frame:new_payload(StreamID, Payload),
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data};
+
+connected(cast, close_connection, Data) ->
+    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
+    Mod:close_connection(Pid),
+    {stop, disconnect};
 
 connected({call, Caller}, _Msg, Data) ->
     {keep_state, Data, [{reply, Caller, ok}]}.
