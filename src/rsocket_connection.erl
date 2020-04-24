@@ -1,8 +1,6 @@
 -module(rsocket_connection).
 -behaviour(gen_statem).
 
--include("rsocket_format.hrl").
-
 %% API
 -export([
          start_link/4,
@@ -129,16 +127,10 @@ awaiting_setup(cast, close_connection, Data) ->
     {stop, disconnect};
 
 awaiting_setup(cast, {recv, Frame}, Data) ->
-    ?RSOCKET_FRAME_HEADER(
-       StreamID, FrameType, IgnoreFlag, MetadataFlag, OtherFlags, FramePayload
-      ) = Frame,
-    case FrameType of
-        ?FRAME_TYPE_SETUP when StreamID =:= 0 ->
-            {next_state, connected, Data};
-        ?FRAME_TYPE_RESUME when StreamID =:= 0 ->
+    case rsocket_frame:parse(Frame) of
+        {ok, {setup, 0}} ->
             {next_state, connected, Data};
         _ ->
-            %% TODO: send ERROR[INVALID_SETUP]
             {stop, invalid_setup}
     end;
 
@@ -147,11 +139,8 @@ awaiting_setup({call, Caller}, _Msg, Data) ->
 
 
 connected(cast, {recv, Frame}, Data) ->
-    ?RSOCKET_FRAME_HEADER(
-       StreamID, FrameType, IgnoreFlag, MetadataFlag, OtherFlags, FramePayload
-      ) = Frame,
-    case FrameType of
-        ?FRAME_TYPE_REQUEST_FNF when StreamID =/= 0 ->
+    case rsocket_frame:parse(Frame) of
+        {ok, {request_fnf, StreamID, Message}} when StreamID =/= 0 ->
             case maps:find(fire_and_forget, Data#data.stream_handlers) of
                 error ->
                     %% TODO: Send REJECT
@@ -160,10 +149,10 @@ connected(cast, {recv, Frame}, Data) ->
                     %% TODO: Not yet supported, send REJECT
                     {keep_state, Data};
                 {ok, FnfHandler} when is_function(FnfHandler, 1) ->
-                    proc_lib:spawn(fun() -> FnfHandler(FramePayload) end),
+                    proc_lib:spawn(fun() -> FnfHandler(Message) end),
                     {keep_state, Data}
             end;
-        ?FRAME_TYPE_REQUEST_RESPONSE when StreamID =/= 0 ->
+        {ok, {request_response, StreamID, Request}} when StreamID =/= 0 ->
             case maps:find(request_response, Data#data.stream_handlers) of
                 error ->
                     %% TODO: Send REJECT
@@ -175,16 +164,16 @@ connected(cast, {recv, Frame}, Data) ->
                     Self = self(),
                     proc_lib:spawn(
                       fun() ->
-                              Response = RRHandler(FramePayload),
+                              Response = RRHandler(Request),
                               ok = send_payload(Self, StreamID, Response)
                       end),
                     %% TODO: send back the response
                     {keep_state, Data}
             end;
-        ?FRAME_TYPE_PAYLOAD when StreamID =/= 0 ->
+        {ok, {payload, StreamID, Payload}} when StreamID =/= 0 ->
             case gproc:where({n, l, {rsocket_stream, self(), StreamID}}) of
                 undefined -> ok;
-                Stream    -> Stream ! {recv_payload, FramePayload}
+                Stream    -> Stream ! {recv_payload, Payload}
             end,
             {keep_state, Data};
         _ ->
