@@ -7,7 +7,7 @@
 -export([
          start_link/4,
          recv_frame/2,
-         send_fnf/2,
+         request_fnf/2,
          close/1
         ]).
 
@@ -52,8 +52,8 @@ start_link(Mode, Module, Transport, Handlers) ->
 recv_frame(Server, Frame) ->
     gen_statem:cast(Server, {recv, Frame}).
 
-send_fnf(Server, Message) ->
-    gen_statem:cast(Server, {send_fnf, Message}).
+request_fnf(Server, Message) ->
+    gen_statem:cast(Server, {request_fnf, Message}).
 
 close(Server) ->
     gen_statem:cast(Server, close_connection).
@@ -157,7 +157,7 @@ connected(cast, {recv, Frame}, Data) ->
             {stop, unexpected_message}
     end;
 
-connected(cast, {send_fnf, Message}, Data) ->
+connected(cast, {request_fnf, Message}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Fnf = ?RSOCKET_REQUEST_FNF(Message),
     %% TODO: Set up the frame header correctly

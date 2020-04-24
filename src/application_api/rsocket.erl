@@ -11,7 +11,7 @@
 %%%===================================================================
 
 cast(Connection, Message) ->
-    rsocket_connection:send_fnf(Connection, Message).
+    rsocket_connection:request_fnf(Connection, Message).
 
 close_connection(Connection) ->
     rsocket_connection:close(Connection).
