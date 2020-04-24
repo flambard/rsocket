@@ -86,3 +86,10 @@
           (Payload) /binary
         >>
        ).
+
+-define(RSOCKET_ERROR(ErrorCode, ErrorData),
+        <<
+          (ErrorCode) :32,
+          (ErrorData) /binary
+        >>
+       ).

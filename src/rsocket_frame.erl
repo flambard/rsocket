@@ -8,7 +8,9 @@
          new_setup/0,
          new_request_fnf/2,
          new_request_response/2,
-         new_payload/2
+         new_payload/2,
+         new_error/2,
+         new_error/3
         ]).
 
 %%%===================================================================
@@ -71,7 +73,28 @@ new_payload(StreamID, Payload) ->
     %% TODO: Set up the frame header correctly
     ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, 0, 0, 0, P).
 
+new_error(StreamID, ErrorType) ->
+    new_error(StreamID, ErrorType, <<"">>).
+
+new_error(StreamID, ErrorType, ErrorData) ->
+    ErrorCode = maps:get(ErrorType, error_codes()),
+    E = ?RSOCKET_ERROR(ErrorCode, ErrorData),
+    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_ERROR, 0, 0, 0, E).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+error_codes() ->
+    #{
+      invalid_setup =>     16#001,
+      unsupported_setup => 16#002,
+      rejected_setup =>    16#003,
+      rejected_resume =>   16#004,
+      connection_error =>  16#101,
+      connection_close =>  16#102,
+      application_error => 16#201,
+      rejected =>          16#202,
+      canceled =>          16#203,
+      invalid =>           16#204
+     }.

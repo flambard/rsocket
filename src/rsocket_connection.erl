@@ -139,14 +139,19 @@ awaiting_setup({call, Caller}, _Msg, Data) ->
 
 
 connected(cast, {recv, Frame}, Data) ->
+    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     case rsocket_frame:parse(Frame) of
         {ok, {request_fnf, StreamID, Message}} when StreamID =/= 0 ->
             case maps:find(fire_and_forget, Data#data.stream_handlers) of
                 error ->
-                    %% TODO: Send REJECT
+                    Error = <<"No fire-and-forget handler">>,
+                    Frame = rsocket_frame:new_error(StreamID, reject, Error),
+                    ok = Mod:send_frame(Pid, Frame),
                     {keep_state, Data};
                 {ok, {_Mod, _Fun, _Args}} ->
-                    %% TODO: Not yet supported, send REJECT
+                    Error = <<"MFA tuples not yet supported">>,
+                    Frame = rsocket_frame:new_error(StreamID, reject, Error),
+                    ok = Mod:send_frame(Pid, Frame),
                     {keep_state, Data};
                 {ok, FnfHandler} when is_function(FnfHandler, 1) ->
                     proc_lib:spawn(fun() -> FnfHandler(Message) end),
@@ -155,10 +160,14 @@ connected(cast, {recv, Frame}, Data) ->
         {ok, {request_response, StreamID, Request}} when StreamID =/= 0 ->
             case maps:find(request_response, Data#data.stream_handlers) of
                 error ->
-                    %% TODO: Send REJECT
+                    Error = <<"No request-response handler">>,
+                    Frame = rsocket_frame:new_error(StreamID, reject, Error),
+                    ok = Mod:send_frame(Pid, Frame),
                     {keep_state, Data};
                 {ok, {_Mod, _Fun, _Args}} ->
-                    %% TODO: Not yet supported, send REJECT
+                    Error = <<"MFA tuples not yet supported">>,
+                    Frame = rsocket_frame:new_error(StreamID, reject, Error),
+                    ok = Mod:send_frame(Pid, Frame),
                     {keep_state, Data};
                 {ok, RRHandler} when is_function(RRHandler, 1) ->
                     Self = self(),
@@ -167,7 +176,6 @@ connected(cast, {recv, Frame}, Data) ->
                               Response = RRHandler(Request),
                               ok = send_payload(Self, StreamID, Response)
                       end),
-                    %% TODO: send back the response
                     {keep_state, Data}
             end;
         {ok, {payload, StreamID, Payload}} when StreamID =/= 0 ->
