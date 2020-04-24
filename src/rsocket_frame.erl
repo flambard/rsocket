@@ -60,17 +60,16 @@ new_setup() ->
 
 new_request_fnf(StreamID, Message) ->
     Fnf = ?RSOCKET_REQUEST_FNF(Message),
-    %% TODO: Set up the frame header correctly
     ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, 0, 0, 0, Fnf).
 
 new_request_response(StreamID, Request) ->
     RR = ?RSOCKET_REQUEST_RESPONSE(Request),
-    %% TODO: Set up the frame header correctly
     ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, 0, 0, 0, RR).
 
 new_payload(StreamID, Payload) ->
     P = ?RSOCKET_PAYLOAD(Payload),
     %% TODO: Set up the frame header correctly
+    %% Flags: M = 0, F = 0, C = 1, N = 1
     ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, 0, 0, 0, P).
 
 new_error(StreamID, ErrorType) ->
