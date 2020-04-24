@@ -131,11 +131,11 @@ awaiting_setup(cast, {recv, Frame}, Data) ->
         {ok, {setup, 0}} ->
             {next_state, connected, Data};
         _ ->
+            #data{ transport_pid = Pid, transport_mod = Mod } = Data,
+            Frame = rsocket_frame:new_error(0, invalid_setup),
+            ok = Mod:send_frame(Pid, Frame),
             {stop, invalid_setup}
-    end;
-
-awaiting_setup({call, Caller}, _Msg, Data) ->
-    {next_state, awaiting_setup, Data, [{reply, Caller, ok}]}.
+    end.
 
 
 connected(cast, {recv, Frame}, Data) ->
