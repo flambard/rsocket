@@ -179,7 +179,7 @@ connected(cast, {recv, Frame}, Data) ->
                     {keep_state, Data}
             end;
         {ok, {payload, StreamID, Payload}} when StreamID =/= 0 ->
-            case gproc:where({n, l, {rsocket_stream, self(), StreamID}}) of
+            case find_stream(self(), StreamID) of
                 undefined -> ok;
                 Stream    -> Stream ! {recv_payload, Payload}
             end,
@@ -196,10 +196,10 @@ connected(cast, {send_request_fnf, Message}, Data) ->
     {keep_state, Data#data{ next_stream_id = ID + 2 }};
 
 connected(cast, {send_request_response, Request, Handler}, Data) ->
-    ID = Data#data.next_stream_id,
+    StreamID = Data#data.next_stream_id,
     Self = self(),
     proc_lib:spawn(fun() ->
-                           true = gproc:reg({n, l, {rsocket_stream, Self, ID}}),
+                           register_stream(Self, StreamID),
                            receive
                                {recv_payload, Payload} ->
                                    Handler({ok, Payload})
@@ -208,9 +208,9 @@ connected(cast, {send_request_response, Request, Handler}, Data) ->
                            end
                    end),
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    Frame = rsocket_frame:new_request_response(ID, Request),
+    Frame = rsocket_frame:new_request_response(StreamID, Request),
     ok = Mod:send_frame(Pid, Frame),
-    {keep_state, Data#data{ next_stream_id = ID + 2 }};
+    {keep_state, Data#data{ next_stream_id = StreamID + 2 }};
 
 connected(cast, {send_payload, StreamID, Payload}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
@@ -225,3 +225,9 @@ connected({call, Caller}, _Msg, Data) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+register_stream(RSocket, StreamID) ->
+    true = gproc:reg({n, l, {rsocket_stream, RSocket, StreamID}}).
+
+find_stream(RSocket, StreamID) ->
+    gproc:where({n, l, {rsocket_stream, RSocket, StreamID}}).
