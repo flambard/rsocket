@@ -38,6 +38,16 @@
          max_lifetime
         }).
 
+-define(CLIENT_INITIAL_STREAM_ID, 1).
+-define(SERVER_INITIAL_STREAM_ID, 2).
+
+-define(OPTION_DEFAULTS,
+        #{
+          keepalive_interval => 3000,
+          max_lifetime => 4000
+         }
+       ).
+
 
 %%%===================================================================
 %%% API
@@ -51,7 +61,10 @@
           ignore |
           {error, Error :: term()}.
 start_link(Mode, Module, Transport, Handlers) ->
-    gen_statem:start_link(?MODULE, [Mode, Module, Transport, Handlers], []).
+    Options = #{}, %% TODO: Take options as parameter
+    AllOptions = maps:merge(?OPTION_DEFAULTS, Options),
+    gen_statem:start_link(
+      ?MODULE, [Mode, Module, Transport, Handlers, AllOptions], []).
 
 recv_frame(Server, Frame) ->
     gen_statem:cast(Server, {recv, Frame}).
@@ -81,24 +94,26 @@ callback_mode() -> state_functions.
 
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([accept, Module, Transport, Handlers]) ->
+init([accept, Module, Transport, Handlers, _Options]) ->
     Data = #data{
               transport_mod = Module,
               transport_pid = Transport,
               stream_handlers = Handlers,
-              next_stream_id = 2
+              next_stream_id = ?SERVER_INITIAL_STREAM_ID
              },
     {ok, awaiting_setup, Data};
 
-init([initiate, Module, Transport, Handlers]) ->
-    %% TODO: Get the timer settings as options
+init([initiate, Module, Transport, Handlers, Options]) ->
+    #{ keepalive_interval := KeepaliveInterval,
+       max_lifetime := MaxLifetime
+     } = Options,
     Data = #data{
               transport_mod = Module,
               transport_pid = Transport,
               stream_handlers = Handlers,
-              next_stream_id = 1,
-              keepalive_interval = 100,
-              max_lifetime = 4000
+              next_stream_id = ?CLIENT_INITIAL_STREAM_ID,
+              keepalive_interval = KeepaliveInterval,
+              max_lifetime = MaxLifetime
              },
     gen_statem:cast(self(), send_setup),
     {ok, setup_connection, Data}.
