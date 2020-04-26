@@ -69,6 +69,22 @@
         >>
        ).
 
+-define(RSOCKET_KEEPALIVE,
+        <<
+          0    :1,
+          0    :63,
+          <<>> /binary
+        >>
+       ).
+
+-define(RSOCKET_KEEPALIVE(LastReceivedPosition, Data),
+        <<
+          0                      :1,
+          (LastReceivedPosition) :63,
+          (Data)                 /binary
+        >>
+       ).
+
 -define(RSOCKET_REQUEST_FNF(Message),
         <<
           (Message) /binary

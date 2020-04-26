@@ -5,6 +5,7 @@
 %% API
 -export([
          parse/1,
+         new_keepalive/0,
          new_setup/2,
          new_request_fnf/2,
          new_request_response/2,
@@ -25,11 +26,13 @@ parse(Frame) ->
         ?FRAME_TYPE_RESERVED ->
             {error, not_implemented};
         ?FRAME_TYPE_SETUP ->
-            {ok, {setup, StreamID}};
+            ?RSOCKET_SETUP(0, 2, KeepaliveInterval, MaxLifetime, _) =
+                FramePayload,
+            {ok, {setup, StreamID, KeepaliveInterval, MaxLifetime}};
         ?FRAME_TYPE_LEASE ->
             {error, not_implemented};
         ?FRAME_TYPE_KEEPALIVE ->
-            {error, not_implemented};
+            {ok, keepalive};
         ?FRAME_TYPE_REQUEST_RESPONSE ->
             {ok, {request_response, StreamID, FramePayload}};
         ?FRAME_TYPE_REQUEST_FNF ->
@@ -53,6 +56,11 @@ parse(Frame) ->
         ?FRAME_TYPE_EXT ->
             {error, not_implemented}
     end.
+
+new_keepalive() ->
+    Flags = 0, %% TODO: Set up the Respond flag correctly
+    K = ?RSOCKET_KEEPALIVE,
+    ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_KEEPALIVE, 0, 0, Flags, K).
 
 new_setup(TimeBetweenKeepaliveFrames, MaxLifetime) ->
     Setup = ?RSOCKET_SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime, <<>>),

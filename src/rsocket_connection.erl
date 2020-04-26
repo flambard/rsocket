@@ -5,6 +5,7 @@
 -export([
          start_link/4,
          recv_frame/2,
+         send_keepalive/1,
          send_request_fnf/2,
          send_request_response/3,
          send_payload/3,
@@ -32,7 +33,9 @@
          transport_pid,
          transport_mod,
          stream_handlers,
-         next_stream_id
+         next_stream_id,
+         keepalive_interval,
+         max_lifetime
         }).
 
 
@@ -52,6 +55,9 @@ start_link(Mode, Module, Transport, Handlers) ->
 
 recv_frame(Server, Frame) ->
     gen_statem:cast(Server, {recv, Frame}).
+
+send_keepalive(Server) ->
+    gen_statem:cast(Server, send_keepalive).
 
 send_request_fnf(Server, Message) ->
     gen_statem:cast(Server, {send_request_fnf, Message}).
@@ -85,11 +91,14 @@ init([accept, Module, Transport, Handlers]) ->
     {ok, awaiting_setup, Data};
 
 init([initiate, Module, Transport, Handlers]) ->
+    %% TODO: Get the timer settings as options
     Data = #data{
               transport_mod = Module,
               transport_pid = Transport,
               stream_handlers = Handlers,
-              next_stream_id = 1
+              next_stream_id = 1,
+              keepalive_interval = 100,
+              max_lifetime = 4000
              },
     gen_statem:cast(self(), send_setup),
     {ok, setup_connection, Data}.
@@ -115,16 +124,29 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%%===================================================================
 
 setup_connection(cast, send_setup, Data) ->
-    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    Frame = rsocket_frame:new_setup(30000, 40000),
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       keepalive_interval = KeepaliveInterval,
+       max_lifetime = MaxLifetime
+      } = Data,
+    Frame = rsocket_frame:new_setup(KeepaliveInterval, MaxLifetime),
     ok = Mod:send_frame(Pid, Frame),
+    {ok, _TRef} = timer:apply_interval(KeepaliveInterval,
+                                       rsocket_connection,
+                                       send_keepalive,
+                                       [self()]),
     {next_state, connected, Data}.
 
 
 awaiting_setup(cast, {recv, Frame}, Data) ->
     case rsocket_frame:parse(Frame) of
-        {ok, {setup, 0}} ->
-            {next_state, connected, Data};
+        {ok, {setup, 0, KeepaliveInterval, MaxLifetime}} ->
+            NewData = Data#data{
+                        keepalive_interval = KeepaliveInterval,
+                        max_lifetime = MaxLifetime
+                       },
+            {next_state, connected, NewData};
         _ ->
             #data{ transport_pid = Pid, transport_mod = Mod } = Data,
             Frame = rsocket_frame:new_error(0, invalid_setup),
@@ -136,6 +158,9 @@ awaiting_setup(cast, {recv, Frame}, Data) ->
 connected(cast, {recv, Frame}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     case rsocket_frame:parse(Frame) of
+        {ok, keepalive} ->
+            %% TODO: Reply with a KEEPALIVE if the Respond flag is set
+            {keep_state, Data};
         {ok, {request_fnf, StreamID, Message}} when StreamID =/= 0 ->
             case maps:find(fire_and_forget, Data#data.stream_handlers) of
                 error ->
@@ -210,6 +235,12 @@ connected(cast, {send_request_response, Request, Handler}, Data) ->
 connected(cast, {send_payload, StreamID, Payload}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Frame = rsocket_frame:new_payload(StreamID, Payload),
+    ok = Mod:send_frame(Pid, Frame),
+    {keep_state, Data};
+
+connected(cast, send_keepalive, Data) ->
+    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
+    Frame = rsocket_frame:new_keepalive(),
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data};
 
