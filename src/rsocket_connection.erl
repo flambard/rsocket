@@ -116,7 +116,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 
 setup_connection(cast, send_setup, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    Frame = rsocket_frame:new_setup(),
+    Frame = rsocket_frame:new_setup(30000, 40000),
     ok = Mod:send_frame(Pid, Frame),
     {next_state, connected, Data}.
 

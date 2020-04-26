@@ -5,7 +5,7 @@
 %% API
 -export([
          parse/1,
-         new_setup/0,
+         new_setup/2,
          new_request_fnf/2,
          new_request_response/2,
          new_payload/2,
@@ -54,8 +54,8 @@ parse(Frame) ->
             {error, not_implemented}
     end.
 
-new_setup() ->
-    Setup = ?RSOCKET_SETUP(0, 2, 30000, 40000, <<>>),
+new_setup(TimeBetweenKeepaliveFrames, MaxLifetime) ->
+    Setup = ?RSOCKET_SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime, <<>>),
     ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_SETUP, 0, 0, 0, Setup).
 
 new_request_fnf(StreamID, Message) ->
