@@ -171,13 +171,17 @@ awaiting_setup(cast, {recv, Frame}, Data) ->
 
 
 connected(cast, {recv, Frame}, Data) ->
-    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       stream_handlers = StreamHandlers
+      } = Data,
     case rsocket_frame:parse(Frame) of
         {ok, keepalive} ->
             %% TODO: Reply with a KEEPALIVE if the Respond flag is set
             {keep_state, Data};
         {ok, {request_fnf, StreamID, Message}} when StreamID =/= 0 ->
-            case maps:find(fire_and_forget, Data#data.stream_handlers) of
+            case maps:find(fire_and_forget, StreamHandlers) of
                 error ->
                     Error = <<"No fire-and-forget handler">>,
                     Frame = rsocket_frame:new_error(StreamID, reject, Error),
@@ -193,7 +197,7 @@ connected(cast, {recv, Frame}, Data) ->
                     {keep_state, Data}
             end;
         {ok, {request_response, StreamID, Request}} when StreamID =/= 0 ->
-            case maps:find(request_response, Data#data.stream_handlers) of
+            case maps:find(request_response, StreamHandlers) of
                 error ->
                     Error = <<"No request-response handler">>,
                     Frame = rsocket_frame:new_error(StreamID, reject, Error),
@@ -224,14 +228,21 @@ connected(cast, {recv, Frame}, Data) ->
     end;
 
 connected(cast, {send_request_fnf, Message}, Data) ->
-    ID = Data#data.next_stream_id,
-    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       next_stream_id = ID
+      } = Data,
     Frame = rsocket_frame:new_request_fnf(ID, Message),
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data#data{ next_stream_id = ID + 2 }};
 
 connected(cast, {send_request_response, Request, Handler}, Data) ->
-    StreamID = Data#data.next_stream_id,
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       next_stream_id = StreamID
+      } = Data,
     Self = self(),
     proc_lib:spawn(fun() ->
                            register_stream(Self, StreamID),
@@ -242,7 +253,6 @@ connected(cast, {send_request_response, Request, Handler}, Data) ->
                                    Handler({error, timeout})
                            end
                    end),
-    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Frame = rsocket_frame:new_request_response(StreamID, Request),
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data#data{ next_stream_id = StreamID + 2 }};
