@@ -167,7 +167,10 @@ awaiting_setup(cast, {recv, Frame}, Data) ->
             Frame = rsocket_frame:new_error(0, invalid_setup),
             ok = Mod:send_frame(Pid, Frame),
             {stop, invalid_setup}
-    end.
+    end;
+
+awaiting_setup(cast, _, Data) ->
+    {keep_state, Data, [postpone]}.
 
 
 connected(cast, {recv, Frame}, Data) ->
