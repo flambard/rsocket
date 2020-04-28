@@ -1,12 +1,9 @@
--define(RSOCKET_FRAME_HEADER(StreamID, FrameType, IgnoreFlag, MetadataFlag,
-                             OtherFlags, FramePayload),
+-define(RSOCKET_FRAME_HEADER(StreamID, FrameType, Flags, FramePayload),
         <<
           0              :1,
           (StreamID)     :31,
           (FrameType)    :6,
-          (IgnoreFlag)   :1,
-          (MetadataFlag) :1,
-          (OtherFlags)   :8,
+          (Flags)        :10,
           (FramePayload) /binary
         >>
        ).
@@ -40,6 +37,15 @@
 -define(FRAME_TYPE_RESUME,           16#0D).
 -define(FRAME_TYPE_RESUME_OK,        16#0E).
 -define(FRAME_TYPE_EXT,              16#3F).
+
+-define(FLAG_IGNORE,            2#1000000000).
+-define(FLAG_METADATA,          2#0100000000).
+-define(FLAG_SETUP_RESUME,      2#0010000000).
+-define(FLAG_SETUP_LEASE,       2#0001000000).
+-define(FLAG_KEEPALIVE_RESPOND, 2#0010000000).
+-define(FLAG_FRAGMENT_FOLLOWS,  2#0010000000).
+-define(FLAG_COMPLETE,          2#0001000000).
+-define(FLAG_PAYLOAD_NEXT,      2#0000100000).
 
 
 -define(RSOCKET_SETUP(MajorVersion, MinorVersion, TimeBetweenKeepaliveFrames,

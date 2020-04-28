@@ -5,7 +5,7 @@
 %% API
 -export([
          parse/1,
-         new_keepalive/0,
+         new_keepalive/1,
          new_setup/2,
          new_request_fnf/2,
          new_request_response/2,
@@ -19,9 +19,7 @@
 %%%===================================================================
 
 parse(Frame) ->
-    ?RSOCKET_FRAME_HEADER(
-       StreamID, FrameType, IgnoreFlag, MetadataFlag, OtherFlags, FramePayload
-      ) = Frame,
+    ?RSOCKET_FRAME_HEADER(StreamID, FrameType, Flags, FramePayload) = Frame,
     case FrameType of
         ?FRAME_TYPE_RESERVED ->
             {error, not_implemented};
@@ -32,7 +30,7 @@ parse(Frame) ->
         ?FRAME_TYPE_LEASE ->
             {error, not_implemented};
         ?FRAME_TYPE_KEEPALIVE ->
-            {ok, keepalive};
+            {ok, {keepalive, Flags band ?FLAG_KEEPALIVE_RESPOND =/= 0}};
         ?FRAME_TYPE_REQUEST_RESPONSE ->
             {ok, {request_response, StreamID, FramePayload}};
         ?FRAME_TYPE_REQUEST_FNF ->
@@ -57,36 +55,44 @@ parse(Frame) ->
             {error, not_implemented}
     end.
 
-new_keepalive() ->
-    Flags = 0, %% TODO: Set up the Respond flag correctly
+new_keepalive(Options) ->
+    Flags = case proplists:is_defined(respond, Options) of
+                false -> 0;
+                true  -> ?FLAG_KEEPALIVE_RESPOND
+            end,
     K = ?RSOCKET_KEEPALIVE,
-    ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_KEEPALIVE, 0, 0, Flags, K).
+    ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_KEEPALIVE, Flags, K).
 
 new_setup(TimeBetweenKeepaliveFrames, MaxLifetime) ->
+    Flags = 0,
     Setup = ?RSOCKET_SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime, <<>>),
-    ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_SETUP, 0, 0, 0, Setup).
+    ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_SETUP, Flags, Setup).
 
 new_request_fnf(StreamID, Message) ->
+    Flags = 0,
     Fnf = ?RSOCKET_REQUEST_FNF(Message),
-    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, 0, 0, 0, Fnf).
+    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, Flags, Fnf).
 
 new_request_response(StreamID, Request) ->
+    Flags = 0,
     RR = ?RSOCKET_REQUEST_RESPONSE(Request),
-    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, 0, 0, 0, RR).
+    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, RR).
 
 new_payload(StreamID, Payload) ->
-    P = ?RSOCKET_PAYLOAD(Payload),
     %% TODO: Set up the frame header correctly
     %% Flags: M = 0, F = 0, C = 1, N = 1
-    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, 0, 0, 0, P).
+    Flags = 0,
+    P = ?RSOCKET_PAYLOAD(Payload),
+    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, Flags, P).
 
 new_error(StreamID, ErrorType) ->
     new_error(StreamID, ErrorType, <<"">>).
 
 new_error(StreamID, ErrorType, ErrorData) ->
+    Flags = 0,
     ErrorCode = maps:get(ErrorType, error_codes()),
     E = ?RSOCKET_ERROR(ErrorCode, ErrorData),
-    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_ERROR, 0, 0, 0, E).
+    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_ERROR, Flags, E).
 
 %%%===================================================================
 %%% Internal functions

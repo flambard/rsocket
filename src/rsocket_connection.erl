@@ -35,7 +35,8 @@
          stream_handlers,
          next_stream_id,
          keepalive_interval,
-         max_lifetime
+         max_lifetime,
+         keepalive_response_timer
         }).
 
 -define(CLIENT_INITIAL_STREAM_ID, 1).
@@ -142,15 +143,13 @@ setup_connection(cast, send_setup, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
-       keepalive_interval = KeepaliveInterval,
+       keepalive_interval = Interval,
        max_lifetime = MaxLifetime
       } = Data,
-    Frame = rsocket_frame:new_setup(KeepaliveInterval, MaxLifetime),
+    Frame = rsocket_frame:new_setup(Interval, MaxLifetime),
     ok = Mod:send_frame(Pid, Frame),
-    {ok, _TRef} = timer:apply_interval(KeepaliveInterval,
-                                       rsocket_connection,
-                                       send_keepalive,
-                                       [self()]),
+    {ok, _TRef} =
+        timer:apply_interval(Interval, ?MODULE, send_keepalive, [self()]),
     {next_state, connected, Data}.
 
 
@@ -173,15 +172,22 @@ awaiting_setup(cast, _, Data) ->
     {keep_state, Data, [postpone]}.
 
 
-connected(cast, {recv, Frame}, Data) ->
+connected(cast, {recv, ReceivedFrame}, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
-       stream_handlers = StreamHandlers
+       stream_handlers = StreamHandlers,
+       keepalive_response_timer = TRef
       } = Data,
-    case rsocket_frame:parse(Frame) of
-        {ok, keepalive} ->
-            %% TODO: Reply with a KEEPALIVE if the Respond flag is set
+    case rsocket_frame:parse(ReceivedFrame) of
+        {ok, {keepalive, Respond}} ->
+            case Respond of
+                false ->
+                    {ok, cancel} = timer:cancel(TRef);
+                true ->
+                    Frame = rsocket_frame:new_keepalive([]),
+                    ok = Mod:send_frame(Pid, Frame)
+            end,
             {keep_state, Data};
         {ok, {request_fnf, StreamID, Message}} when StreamID =/= 0 ->
             case maps:find(fire_and_forget, StreamHandlers) of
@@ -267,9 +273,19 @@ connected(cast, {send_payload, StreamID, Payload}, Data) ->
     {keep_state, Data};
 
 connected(cast, send_keepalive, Data) ->
-    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    Frame = rsocket_frame:new_keepalive(),
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       max_lifetime = MaxLifetime
+      } = Data,
+    Frame = rsocket_frame:new_keepalive([respond]),
     ok = Mod:send_frame(Pid, Frame),
+    {ok, TRef} = timer:send_after(MaxLifetime, keepalive_timeout),
+    {keep_state, Data#data{ keepalive_response_timer = TRef }};
+
+connected(info, keepalive_timeout, Data) ->
+    %% TODO: Determine what the protocol is actually supposed to do
+    %% when the other end does not respond to KEEPALIVEs
     {keep_state, Data};
 
 connected(cast, close_connection, Data) ->
