@@ -1,3 +1,128 @@
+-define(HEADER(StreamID, Frame),
+       <<
+         0          :1,
+         (StreamID) :31,
+         (Frame)    /binary
+       >>
+       ).
+
+-define(SETUP(MetadataPresent, ResumeEnable, Lease, MajorVersion, MinorVersion,
+              TimeBetweenKeepaliveFrames, MaxLifetime, MetadataAndPayload),
+        <<
+          16#01                        :6,
+          %% Flags
+          0                            :1,
+          (MetadataPresent)            :1,
+          (ResumeEnable)               :1,
+          (Lease)                      :1,
+          0                            :6,
+          %%
+          (MajorVersion)               :16,
+          (MinorVersion)               :16,
+          0                            :1,
+          (TimeBetweenKeepaliveFrames) :31,
+          0                            :1,
+          (MaxLifetime)                :31,
+          (MetadataAndPayload)         /binary
+        >>
+       ).
+
+-define(SETUP(MetadataPresent, ResumeEnable, Lease, MajorVersion, MinorVersion,
+              TimeBetweenKeepaliveFrames, MaxLifetime, TokenLength,
+              ResumeIdentificationToken),
+        <<
+          16#01                        :6,
+          %% Flags
+          0                            :1,
+          (MetadataPresent)            :1,
+          (ResumeEnable)               :1,
+          (Lease)                      :1,
+          0                            :6,
+          %%
+          (MajorVersion)               :16,
+          (MinorVersion)               :16,
+          0                            :1,
+          (TimeBetweenKeepaliveFrames) :31,
+          0                            :1,
+          (MaxLifetime)                :31,
+          (TokenLength)                :16,
+          (ResumeIdentificationToken)  /binary
+        >>
+       ).
+
+-define(KEEPALIVE, ?KEEPALIVE(0, <<>>)).
+
+-define(KEEPALIVE(Respond, LastReceivedPosition, Data),
+        <<
+          16#03                  :6,
+          %% Flags
+          0                      :2,
+          (Respond)              :1,
+          0                      :7,
+          0                      :1,
+          %%
+          (LastReceivedPosition) :63,
+          (Data)                 /binary
+        >>
+       ).
+
+-define(REQUEST_FNF(MetadataPresent, Follows, Message),
+        <<
+          16#05             :6,
+          %% Flags
+          0                 :1,
+          (MetadataPresent) :1,
+          (Follows)         :1,
+          0                 :7,
+          %%
+          (Message)         /binary
+        >>
+       ).
+
+-define(REQUEST_RESPONSE(MetadataPresent, Follows, Request),
+        <<
+          16#04             :6,
+          %% Flags
+          0                 :1,
+          (MetadataPresent) :1,
+          (Follows)         :1,
+          0                 :7,
+          %%
+          (Request)         /binary
+        >>
+       ).
+
+-define(PAYLOAD(Payload),
+        <<
+          16#0A             :6,
+          %% Flags
+          0                 :1,
+          (MetadataPresent) :1,
+          (Follows)         :1,
+          (Complete)        :1,
+          (Next)            :1,
+          0                 :5,
+          %%
+          (Payload)         /binary
+        >>
+       ).
+
+-define(ERROR(ErrorCode, ErrorData),
+        <<
+          16#0B       :6,
+          %% Flags
+          0           :10,
+          %%
+          (ErrorCode) :32,
+          (ErrorData) /binary
+        >>
+       ).
+
+
+%%%
+%%% OLD
+%%%
+
 -define(RSOCKET_FRAME_HEADER(StreamID, FrameType, Flags, FramePayload),
         <<
           0              :1,
