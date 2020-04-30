@@ -19,13 +19,12 @@
 %%%===================================================================
 
 parse(Frame) ->
-    ?RSOCKET_FRAME_HEADER(StreamID, FrameType, Flags, FramePayload) = Frame,
+    ?FRAME_HEADER(StreamID, FrameType, Flags, FramePayload) = Frame,
     case FrameType of
         ?FRAME_TYPE_RESERVED ->
             {error, not_implemented};
         ?FRAME_TYPE_SETUP ->
-            ?RSOCKET_SETUP(0, 2, KeepaliveInterval, MaxLifetime, _) =
-                FramePayload,
+            ?SETUP(0, 2, KeepaliveInterval, MaxLifetime, _) = FramePayload,
             {ok, {setup, StreamID, KeepaliveInterval, MaxLifetime}};
         ?FRAME_TYPE_LEASE ->
             {error, not_implemented};
@@ -60,30 +59,30 @@ new_keepalive(Options) ->
                 false -> 0;
                 true  -> ?FLAG_KEEPALIVE_RESPOND
             end,
-    K = ?RSOCKET_KEEPALIVE,
-    ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_KEEPALIVE, Flags, K).
+    K = ?KEEPALIVE,
+    ?FRAME_HEADER(0, ?FRAME_TYPE_KEEPALIVE, Flags, K).
 
 new_setup(TimeBetweenKeepaliveFrames, MaxLifetime) ->
     Flags = 0,
-    Setup = ?RSOCKET_SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime, <<>>),
-    ?RSOCKET_FRAME_HEADER(0, ?FRAME_TYPE_SETUP, Flags, Setup).
+    Setup = ?SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime, <<>>),
+    ?FRAME_HEADER(0, ?FRAME_TYPE_SETUP, Flags, Setup).
 
 new_request_fnf(StreamID, Message) ->
     Flags = 0,
-    Fnf = ?RSOCKET_REQUEST_FNF(Message),
-    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, Flags, Fnf).
+    Fnf = ?REQUEST_FNF(Message),
+    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, Flags, Fnf).
 
 new_request_response(StreamID, Request) ->
     Flags = 0,
-    RR = ?RSOCKET_REQUEST_RESPONSE(Request),
-    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, RR).
+    RR = ?REQUEST_RESPONSE(Request),
+    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, RR).
 
 new_payload(StreamID, Payload) ->
     %% TODO: Set up the frame header correctly
     %% Flags: M = 0, F = 0, C = 1, N = 1
     Flags = 0,
-    P = ?RSOCKET_PAYLOAD(Payload),
-    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, Flags, P).
+    P = ?PAYLOAD(Payload),
+    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, Flags, P).
 
 new_error(StreamID, ErrorType) ->
     new_error(StreamID, ErrorType, <<"">>).
@@ -91,8 +90,8 @@ new_error(StreamID, ErrorType) ->
 new_error(StreamID, ErrorType, ErrorData) ->
     Flags = 0,
     ErrorCode = maps:get(ErrorType, error_codes()),
-    E = ?RSOCKET_ERROR(ErrorCode, ErrorData),
-    ?RSOCKET_FRAME_HEADER(StreamID, ?FRAME_TYPE_ERROR, Flags, E).
+    E = ?ERROR(ErrorCode, ErrorData),
+    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_ERROR, Flags, E).
 
 %%%===================================================================
 %%% Internal functions
