@@ -1,6 +1,8 @@
 -module(rsocket_connection).
 -behaviour(gen_statem).
 
+-include("rsocket_format.hrl").
+
 %% API
 -export([
          start_link/4,
@@ -153,9 +155,12 @@ setup_connection(cast, send_setup, Data) ->
     {next_state, connected, Data}.
 
 
-awaiting_setup(cast, {recv, Frame}, Data) ->
-    case rsocket_frame:parse(Frame) of
-        {ok, {setup, 0, KeepaliveInterval, MaxLifetime}} ->
+awaiting_setup(cast, {recv, ReceivedFrame}, Data) ->
+    {FrameType, StreamID, Flags, Payload} = rsocket_frame:parse(ReceivedFrame),
+    case FrameType of
+        setup ->
+            ?SETUP_FLAGS(MetadataPresent, ResumeEnable, Lease) = Flags,
+            ?SETUP(0, 2, KeepaliveInterval, MaxLifetime, SetupData) = Payload,
             NewData = Data#data{
                         keepalive_interval = KeepaliveInterval,
                         max_lifetime = MaxLifetime
@@ -179,17 +184,20 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
        stream_handlers = StreamHandlers,
        keepalive_response_timer = TRef
       } = Data,
-    case rsocket_frame:parse(ReceivedFrame) of
-        {ok, {keepalive, Respond}} ->
+    {FrameType, StreamID, Flags, Payload} = rsocket_frame:parse(ReceivedFrame),
+    case FrameType of
+        keepalive ->
+            ?KEEPALIVE_FLAGS(Respond) = Flags,
             case Respond of
-                false ->
+                0 ->
                     {ok, cancel} = timer:cancel(TRef);
-                true ->
+                1 ->
                     Frame = rsocket_frame:new_keepalive([]),
                     ok = Mod:send_frame(Pid, Frame)
             end,
             {keep_state, Data};
-        {ok, {request_fnf, StreamID, Message}} when StreamID =/= 0 ->
+        request_fnf when StreamID =/= 0 ->
+            ?REQUEST_FNF_FLAGS(Metadata, Follows) = Flags,
             case maps:find(fire_and_forget, StreamHandlers) of
                 error ->
                     Error = <<"No fire-and-forget handler">>,
@@ -202,10 +210,11 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
                     ok = Mod:send_frame(Pid, Frame),
                     {keep_state, Data};
                 {ok, FnfHandler} when is_function(FnfHandler, 1) ->
-                    proc_lib:spawn(fun() -> FnfHandler(Message) end),
+                    proc_lib:spawn(fun() -> FnfHandler(Payload) end),
                     {keep_state, Data}
             end;
-        {ok, {request_response, StreamID, Request}} when StreamID =/= 0 ->
+        request_response when StreamID =/= 0 ->
+            ?REQUEST_RESPONSE_FLAGS(MetadataPresent, Follows) = Flags,
             case maps:find(request_response, StreamHandlers) of
                 error ->
                     Error = <<"No request-response handler">>,
@@ -221,12 +230,13 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
                     Self = self(),
                     proc_lib:spawn(
                       fun() ->
-                              Response = RRHandler(Request),
+                              Response = RRHandler(Payload),
                               ok = send_payload(Self, StreamID, Response)
                       end),
                     {keep_state, Data}
             end;
-        {ok, {payload, StreamID, Payload}} when StreamID =/= 0 ->
+        payload when StreamID =/= 0 ->
+            ?PAYLOAD_FLAGS(MetadataPresent, Follows, Complete, Next) = Flags,
             case find_stream(self(), StreamID) of
                 undefined -> ok;
                 Stream    -> Stream ! {recv_payload, Payload}

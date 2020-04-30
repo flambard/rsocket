@@ -20,67 +20,59 @@
 
 parse(Frame) ->
     ?FRAME_HEADER(StreamID, FrameType, Flags, FramePayload) = Frame,
-    case FrameType of
-        ?FRAME_TYPE_RESERVED ->
-            {error, not_implemented};
-        ?FRAME_TYPE_SETUP ->
-            ?SETUP(0, 2, KeepaliveInterval, MaxLifetime, _) = FramePayload,
-            {ok, {setup, StreamID, KeepaliveInterval, MaxLifetime}};
-        ?FRAME_TYPE_LEASE ->
-            {error, not_implemented};
-        ?FRAME_TYPE_KEEPALIVE ->
-            {ok, {keepalive, Flags band ?FLAG_KEEPALIVE_RESPOND =/= 0}};
-        ?FRAME_TYPE_REQUEST_RESPONSE ->
-            {ok, {request_response, StreamID, FramePayload}};
-        ?FRAME_TYPE_REQUEST_FNF ->
-            {ok, {request_fnf, StreamID, FramePayload}};
-        ?FRAME_TYPE_REQUEST_STREAM ->
-            {error, not_implemented};
-        ?FRAME_TYPE_REQUEST_CHANNEL ->
-            {error, not_implemented};
-        ?FRAME_TYPE_REQUEST_N ->
-            {error, not_implemented};
-        ?FRAME_TYPE_CANCEL ->
-            {error, not_implemented};
-        ?FRAME_TYPE_PAYLOAD ->
-            {ok, {payload, StreamID, FramePayload}};
-        ?FRAME_TYPE_ERROR ->
-            {error, not_implemented};
-        ?FRAME_TYPE_METADATA_PUSH ->
-            {error, not_implemented};
-        ?FRAME_TYPE_RESUME ->
-            {error, not_implemented};
-        ?FRAME_TYPE_EXT ->
-            {error, not_implemented}
-    end.
+    {maps:get(FrameType, frame_types()), StreamID, Flags, FramePayload}.
+
+frame_types() ->
+    #{
+      ?FRAME_TYPE_RESERVED         => reserved,
+      ?FRAME_TYPE_SETUP            => setup,
+      ?FRAME_TYPE_LEASE            => lease,
+      ?FRAME_TYPE_KEEPALIVE        => keepalive,
+      ?FRAME_TYPE_REQUEST_RESPONSE => request_response,
+      ?FRAME_TYPE_REQUEST_FNF      => request_fnf,
+      ?FRAME_TYPE_REQUEST_STREAM   => request_stream,
+      ?FRAME_TYPE_REQUEST_CHANNEL  => request_channel,
+      ?FRAME_TYPE_REQUEST_N        => request_n,
+      ?FRAME_TYPE_CANCEL           => cancel,
+      ?FRAME_TYPE_PAYLOAD          => payload,
+      ?FRAME_TYPE_ERROR            => error,
+      ?FRAME_TYPE_METADATA_PUSH    => metadata_push,
+      ?FRAME_TYPE_RESUME           => resume,
+      ?FRAME_TYPE_RESUME_OK        => resume_ok,
+      ?FRAME_TYPE_EXT              => ext
+     }.
 
 new_keepalive(Options) ->
-    Flags = case proplists:is_defined(respond, Options) of
-                false -> 0;
-                true  -> ?FLAG_KEEPALIVE_RESPOND
-            end,
+    Respond = bool_to_bit(proplists:is_defined(respond, Options)),
+    Flags = ?KEEPALIVE_FLAGS(Respond),
     K = ?KEEPALIVE,
     ?FRAME_HEADER(0, ?FRAME_TYPE_KEEPALIVE, Flags, K).
 
 new_setup(TimeBetweenKeepaliveFrames, MaxLifetime) ->
-    Flags = 0,
+    Flags = ?SETUP_FLAGS(0, 0, 0),
     Setup = ?SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime, <<>>),
     ?FRAME_HEADER(0, ?FRAME_TYPE_SETUP, Flags, Setup).
 
 new_request_fnf(StreamID, Message) ->
-    Flags = 0,
+    MetadataPresent = 0,
+    Follows = 0,
+    Flags = ?REQUEST_FNF_FLAGS(MetadataPresent, Follows),
     Fnf = ?REQUEST_FNF(Message),
     ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, Flags, Fnf).
 
 new_request_response(StreamID, Request) ->
-    Flags = 0,
+    MetadataPresent = 0,
+    Follows = 0,
+    Flags = ?REQUEST_RESPONSE_FLAGS(MetadataPresent, Follows),
     RR = ?REQUEST_RESPONSE(Request),
     ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, RR).
 
 new_payload(StreamID, Payload) ->
-    %% TODO: Set up the frame header correctly
-    %% Flags: M = 0, F = 0, C = 1, N = 1
-    Flags = 0,
+    MetadataPresent = 0,
+    Follows = 0,
+    Complete = 1,
+    Next = 1,
+    Flags = ?PAYLOAD_FLAGS(MetadataPresent, Follows, Complete, Next),
     P = ?PAYLOAD(Payload),
     ?FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, Flags, P).
 
@@ -88,8 +80,8 @@ new_error(StreamID, ErrorType) ->
     new_error(StreamID, ErrorType, <<"">>).
 
 new_error(StreamID, ErrorType, ErrorData) ->
-    Flags = 0,
     ErrorCode = maps:get(ErrorType, error_codes()),
+    Flags = ?ERROR(ErrorCode, ErrorData),
     E = ?ERROR(ErrorCode, ErrorData),
     ?FRAME_HEADER(StreamID, ?FRAME_TYPE_ERROR, Flags, E).
 
@@ -99,14 +91,20 @@ new_error(StreamID, ErrorType, ErrorData) ->
 
 error_codes() ->
     #{
-      invalid_setup =>     16#001,
+      invalid_setup     => 16#001,
       unsupported_setup => 16#002,
-      rejected_setup =>    16#003,
-      rejected_resume =>   16#004,
-      connection_error =>  16#101,
-      connection_close =>  16#102,
+      rejected_setup    => 16#003,
+      rejected_resume   => 16#004,
+      connection_error  => 16#101,
+      connection_close  => 16#102,
       application_error => 16#201,
-      rejected =>          16#202,
-      canceled =>          16#203,
-      invalid =>           16#204
+      rejected          => 16#202,
+      canceled          => 16#203,
+      invalid           => 16#204
      }.
+
+bool_to_bit(false) -> 0;
+bool_to_bit(true)  -> 1.
+
+bit_to_bool(0) -> false;
+bit_to_bool(1) -> true.

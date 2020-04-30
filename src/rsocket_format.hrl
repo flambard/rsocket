@@ -3,7 +3,7 @@
           0              :1,
           (StreamID)     :31,
           (FrameType)    :6,
-          (Flags)        :10,
+          (Flags)        :10/bitstring,
           (FramePayload) /binary
         >>
        ).
@@ -38,15 +38,6 @@
 -define(FRAME_TYPE_RESUME_OK,        16#0E).
 -define(FRAME_TYPE_EXT,              16#3F).
 
--define(FLAG_IGNORE,            2#1000000000).
--define(FLAG_METADATA,          2#0100000000).
--define(FLAG_SETUP_RESUME,      2#0010000000).
--define(FLAG_SETUP_LEASE,       2#0001000000).
--define(FLAG_KEEPALIVE_RESPOND, 2#0010000000).
--define(FLAG_FRAGMENT_FOLLOWS,  2#0010000000).
--define(FLAG_COMPLETE,          2#0001000000).
--define(FLAG_PAYLOAD_NEXT,      2#0000100000).
-
 
 %%%
 %%% SETUP
@@ -63,7 +54,7 @@
        ).
 
 -define(SETUP(MajorVersion, MinorVersion, TimeBetweenKeepaliveFrames,
-                      MaxLifetime, MetadataAndPayload),
+              MaxLifetime, MetadataAndPayload),
         <<
           (MajorVersion)               :16,
           (MinorVersion)               :16,
@@ -76,7 +67,7 @@
        ).
 
 -define(SETUP(MajorVersion, MinorVersion, TimeBetweenKeepaliveFrames,
-                      MaxLifetime, TokenLength, ResumeIdentificationToken),
+              MaxLifetime, TokenLength, ResumeIdentificationToken),
         <<
           (MajorVersion)               :16,
           (MinorVersion)               :16,
@@ -97,8 +88,7 @@
         <<
           0         :2,
           (Respond) :1,
-          0         :7,
-          0         :1
+          0         :7
         >>
        ).
 
@@ -123,7 +113,7 @@
 %%% REQUEST_FNF
 %%%
 
--define(REQUEST_FNF_FLAGS(MetadataPresent, Follows, Message),
+-define(REQUEST_FNF_FLAGS(MetadataPresent, Follows),
         <<
           0                 :1,
           (MetadataPresent) :1,
