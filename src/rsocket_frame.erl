@@ -70,7 +70,6 @@ new_request_fnf(StreamID, Message, Options) ->
 
 new_request_response(StreamID, Request, Options) ->
     Follows = bool_to_bit(proplists:is_defined(follows, Options)),
-    MetadataPresent = 0,
     case proplists:lookup(metadata, Options) of
         none ->
             Flags = ?REQUEST_RESPONSE_FLAGS(0, Follows),
