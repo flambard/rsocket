@@ -8,7 +8,7 @@
          start_link/4,
          recv_frame/2,
          send_keepalive/1,
-         send_request_fnf/2,
+         send_request_fnf/3,
          send_request_response/3,
          send_payload/3,
          close/1
@@ -75,8 +75,8 @@ recv_frame(Server, Frame) ->
 send_keepalive(Server) ->
     gen_statem:cast(Server, send_keepalive).
 
-send_request_fnf(Server, Message) ->
-    gen_statem:cast(Server, {send_request_fnf, Message}).
+send_request_fnf(Server, Message, Options) ->
+    gen_statem:cast(Server, {send_request_fnf, Message, Options}).
 
 send_request_response(Server, Request, Handler) ->
     gen_statem:cast(Server, {send_request_response, Request, Handler}).
@@ -188,13 +188,13 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             {stop, unexpected_message}
     end;
 
-connected(cast, {send_request_fnf, Message}, Data) ->
+connected(cast, {send_request_fnf, Message, Options}, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
        next_stream_id = ID
       } = Data,
-    Frame = rsocket_frame:new_request_fnf(ID, Message),
+    Frame = rsocket_frame:new_request_fnf(ID, Message, Options),
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data#data{ next_stream_id = ID + 2 }};
 
@@ -275,7 +275,7 @@ handle_keepalive(?KEEPALIVE_FLAGS(0), Data) ->
     {keep_state, Data}.
 
 
-handle_request_fnf(?REQUEST_FNF_FLAGS(_M, _F), StreamID, FrameData, Data) ->
+handle_request_fnf(?REQUEST_FNF_FLAGS(M, _F), StreamID, FrameData, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
@@ -293,7 +293,15 @@ handle_request_fnf(?REQUEST_FNF_FLAGS(_M, _F), StreamID, FrameData, Data) ->
             ok = Mod:send_frame(Pid, Frame),
             {keep_state, Data};
         {ok, FnfHandler} when is_function(FnfHandler, 1) ->
-            proc_lib:spawn(fun() -> FnfHandler(FrameData) end),
+            Map =
+                case M of
+                    0 ->
+                        #{ request => FrameData };
+                    1 ->
+                        ?METADATA(_Size, Metadata, Request) = FrameData,
+                        #{ request => Request, metadata => Metadata }
+                end,
+            proc_lib:spawn(fun() -> FnfHandler(Map) end),
             {keep_state, Data}
     end.
 

@@ -8,10 +8,11 @@
         >>
        ).
 
--define(METADATA(MetadataLength, MetadataPayload),
+-define(METADATA(MetadataLength, MetadataPayload, Data),
         <<
           (MetadataLength)  :24,
-          (MetadataPayload) /binary
+          (MetadataPayload) :(MetadataLength)/binary,
+          (Data)            /binary
         >>
        ).
 

@@ -7,7 +7,7 @@
          parse/1,
          new_keepalive/1,
          new_setup/2,
-         new_request_fnf/2,
+         new_request_fnf/3,
          new_request_response/2,
          new_payload/2,
          new_error/2,
@@ -53,12 +53,20 @@ new_setup(TimeBetweenKeepaliveFrames, MaxLifetime) ->
     Setup = ?SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime, <<>>),
     ?FRAME_HEADER(0, ?FRAME_TYPE_SETUP, Flags, Setup).
 
-new_request_fnf(StreamID, Message) ->
-    MetadataPresent = 0,
-    Follows = 0,
-    Flags = ?REQUEST_FNF_FLAGS(MetadataPresent, Follows),
-    Fnf = ?REQUEST_FNF(Message),
-    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, Flags, Fnf).
+new_request_fnf(StreamID, Message, Options) ->
+    Follows = bool_to_bit(proplists:is_defined(follows, Options)),
+    case proplists:lookup(metadata, Options) of
+        none ->
+            Flags = ?REQUEST_FNF_FLAGS(0, Follows),
+            Fnf = ?REQUEST_FNF(Message),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, Flags, Fnf);
+        {metadata, Metadata} ->
+            Flags = ?REQUEST_FNF_FLAGS(1, Follows),
+            Fnf = ?REQUEST_FNF(Message),
+            Size = byte_size(Metadata),
+            M = ?METADATA(Size, Metadata, Fnf),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, Flags, M)
+    end.
 
 new_request_response(StreamID, Request) ->
     MetadataPresent = 0,

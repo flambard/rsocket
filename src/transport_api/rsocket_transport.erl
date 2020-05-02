@@ -12,7 +12,7 @@
         ]).
 
 
--callback send_frame(Transport :: term(), Frame :: binary()) -> ok.
+-callback send_frame(Transport :: term(), Frame :: iolist()) -> ok.
 -callback close_connection(Transport :: term()) -> ok.
 
 

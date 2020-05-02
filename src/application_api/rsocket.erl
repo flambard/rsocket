@@ -4,6 +4,7 @@
 -export([
          call/2,
          cast/2,
+         cast/3,
          close_connection/1
         ]).
 
@@ -23,7 +24,10 @@ call(Connection, Request) ->
     end.
 
 cast(Connection, Message) ->
-    rsocket_connection:send_request_fnf(Connection, Message).
+    cast(Connection, Message, []).
+
+cast(Connection, Message, Options) ->
+    rsocket_connection:send_request_fnf(Connection, Message, Options).
 
 close_connection(Connection) ->
     rsocket_connection:close(Connection).

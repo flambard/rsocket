@@ -51,7 +51,7 @@ connect(Pid, Config) ->
 %%%===================================================================
 
 send_frame(Connection, Frame) ->
-    Connection ! {send, Frame},
+    Connection ! {send, iolist_to_binary(Frame)},
     ok.
 
 close_connection(Connection) ->
