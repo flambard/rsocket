@@ -129,6 +129,3 @@ error_codes() ->
 
 bool_to_bit(false) -> 0;
 bool_to_bit(true)  -> 1.
-
-bit_to_bool(0) -> false;
-bit_to_bool(1) -> true.
