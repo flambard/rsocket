@@ -9,8 +9,8 @@
          recv_frame/2,
          send_keepalive/1,
          send_request_fnf/3,
-         send_request_response/3,
-         send_payload/3,
+         send_request_response/4,
+         send_payload/4,
          close/1
         ]).
 
@@ -78,11 +78,11 @@ send_keepalive(Server) ->
 send_request_fnf(Server, Message, Options) ->
     gen_statem:cast(Server, {send_request_fnf, Message, Options}).
 
-send_request_response(Server, Request, Handler) ->
-    gen_statem:cast(Server, {send_request_response, Request, Handler}).
+send_request_response(Server, Request, Handler, Options) ->
+    gen_statem:cast(Server, {send_request_response, Request, Handler, Options}).
 
-send_payload(Server, StreamID, Payload) ->
-    gen_statem:cast(Server, {send_payload, StreamID, Payload}).
+send_payload(Server, StreamID, Payload, Options) ->
+    gen_statem:cast(Server, {send_payload, StreamID, Payload, Options}).
 
 close(Server) ->
     gen_statem:cast(Server, close_connection).
@@ -198,7 +198,7 @@ connected(cast, {send_request_fnf, Message, Options}, Data) ->
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data#data{ next_stream_id = ID + 2 }};
 
-connected(cast, {send_request_response, Request, Handler}, Data) ->
+connected(cast, {send_request_response, Request, Handler, Options}, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
@@ -208,19 +208,19 @@ connected(cast, {send_request_response, Request, Handler}, Data) ->
     proc_lib:spawn(fun() ->
                            register_stream(Self, StreamID),
                            receive
-                               {recv_payload, Payload} ->
-                                   Handler({ok, Payload})
+                               {recv_payload, Payload, PayloadOptions} ->
+                                   Handler({ok, Payload, PayloadOptions})
                            after 5000 ->
                                    Handler({error, timeout})
                            end
                    end),
-    Frame = rsocket_frame:new_request_response(StreamID, Request),
+    Frame = rsocket_frame:new_request_response(StreamID, Request, Options),
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data#data{ next_stream_id = StreamID + 2 }};
 
-connected(cast, {send_payload, StreamID, Payload}, Data) ->
+connected(cast, {send_payload, StreamID, Payload, Options}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
-    Frame = rsocket_frame:new_payload(StreamID, Payload),
+    Frame = rsocket_frame:new_payload(StreamID, Payload, Options),
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data};
 
@@ -306,7 +306,7 @@ handle_request_fnf(?REQUEST_FNF_FLAGS(M, _F), StreamID, FrameData, Data) ->
     end.
 
 
-handle_request_response(?REQUEST_RESPONSE_FLAGS(_M, _F), ID, FrameData, Data) ->
+handle_request_response(?REQUEST_RESPONSE_FLAGS(M, _F), ID, FrameData, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
@@ -324,20 +324,45 @@ handle_request_response(?REQUEST_RESPONSE_FLAGS(_M, _F), ID, FrameData, Data) ->
             ok = Mod:send_frame(Pid, Frame),
             {keep_state, Data};
         {ok, RRHandler} when is_function(RRHandler, 1) ->
+            Map =
+                case M of
+                    0 ->
+                        #{ request => FrameData };
+                    1 ->
+                        ?METADATA(_Size, Metadata, Request) = FrameData,
+                        #{ request => Request, metadata => Metadata }
+                end,
             Self = self(),
             proc_lib:spawn(
               fun() ->
-                      Response = RRHandler(FrameData),
-                      ok = send_payload(Self, ID, Response)
+                      PayloadOptions =
+                          case RRHandler(Map) of
+                              {reply, Response}     -> [complete, next];
+                              {reply, Response, Os} -> [complete, next | Os]
+                          end,
+                      send_payload(Self, ID, Response, PayloadOptions)
               end),
             {keep_state, Data}
     end.
 
 
-handle_payload(?PAYLOAD_FLAGS(_M, _F, _C, _N), StreamID, FrameData, Data) ->
+handle_payload(?PAYLOAD_FLAGS(M, F, C, N), StreamID, FrameData, Data) ->
     case find_stream(self(), StreamID) of
         undefined -> ok;
-        Stream    -> Stream ! {recv_payload, FrameData}
+        Stream    ->
+            Flags = lists:append([
+                                  [follows  || F =:= 1],
+                                  [complete || C =:= 1],
+                                  [next     || N =:= 1]
+                                 ]),
+            case M of
+                0 ->
+                    Stream ! {recv_payload, FrameData, Flags};
+                1 ->
+                    ?METADATA(_Size, Metadata, Payload) = FrameData,
+                    PayloadOptions = [{metadata, Metadata} | Flags],
+                    Stream ! {recv_payload, Payload, PayloadOptions}
+            end
     end,
     {keep_state, Data}.
 

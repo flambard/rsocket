@@ -8,8 +8,8 @@
          new_keepalive/1,
          new_setup/2,
          new_request_fnf/3,
-         new_request_response/2,
-         new_payload/2,
+         new_request_response/3,
+         new_payload/3,
          new_error/2,
          new_error/3
         ]).
@@ -68,21 +68,38 @@ new_request_fnf(StreamID, Message, Options) ->
             ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_FNF, Flags, M)
     end.
 
-new_request_response(StreamID, Request) ->
+new_request_response(StreamID, Request, Options) ->
+    Follows = bool_to_bit(proplists:is_defined(follows, Options)),
     MetadataPresent = 0,
-    Follows = 0,
-    Flags = ?REQUEST_RESPONSE_FLAGS(MetadataPresent, Follows),
-    RR = ?REQUEST_RESPONSE(Request),
-    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, RR).
+    case proplists:lookup(metadata, Options) of
+        none ->
+            Flags = ?REQUEST_RESPONSE_FLAGS(0, Follows),
+            RR = ?REQUEST_RESPONSE(Request),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, RR);
+        {metadata, Metadata} ->
+            Flags = ?REQUEST_RESPONSE_FLAGS(1, Follows),
+            RR = ?REQUEST_RESPONSE(Request),
+            Size = byte_size(Metadata),
+            M = ?METADATA(Size, Metadata, RR),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, M)
+    end.
 
-new_payload(StreamID, Payload) ->
-    MetadataPresent = 0,
-    Follows = 0,
-    Complete = 1,
-    Next = 1,
-    Flags = ?PAYLOAD_FLAGS(MetadataPresent, Follows, Complete, Next),
-    P = ?PAYLOAD(Payload),
-    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, Flags, P).
+new_payload(StreamID, Payload, Options) ->
+    Follows = bool_to_bit(proplists:is_defined(follows, Options)),
+    Complete = bool_to_bit(proplists:is_defined(complete, Options)),
+    Next = bool_to_bit(proplists:is_defined(next, Options)),
+    case proplists:lookup(metadata, Options) of
+        none ->
+            Flags = ?PAYLOAD_FLAGS(0, Follows, Complete, Next),
+            P = ?PAYLOAD(Payload),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, Flags, P);
+        {metadata, Metadata} ->
+            Flags = ?PAYLOAD_FLAGS(1, Follows, Complete, Next),
+            P = ?PAYLOAD(Payload),
+            Size = byte_size(Metadata),
+            M = ?METADATA(Size, Metadata, P),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, Flags, M)
+    end.
 
 new_error(StreamID, ErrorType) ->
     new_error(StreamID, ErrorType, <<"">>).

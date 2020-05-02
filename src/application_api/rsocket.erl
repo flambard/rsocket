@@ -3,6 +3,7 @@
 %% API
 -export([
          call/2,
+         call/3,
          cast/2,
          cast/3,
          close_connection/1
@@ -13,10 +14,14 @@
 %%%===================================================================
 
 call(Connection, Request) ->
+    call(Connection, Request, []).
+
+call(Connection, Request, Options) ->
     Self = self(),
     Ref = make_ref(),
     Handler = fun(Response) -> Self ! {response, Ref, Response} end,
-    ok = rsocket_connection:send_request_response(Connection, Request, Handler),
+    ok = rsocket_connection:send_request_response(
+           Connection, Request, Handler, Options),
     receive
         {response, Ref, Response} -> Response
     after 5000 ->
