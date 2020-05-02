@@ -156,16 +156,11 @@ setup_connection(cast, send_setup, Data) ->
 
 
 awaiting_setup(cast, {recv, ReceivedFrame}, Data) ->
-    {FrameType, StreamID, Flags, Payload} = rsocket_frame:parse(ReceivedFrame),
+    {FrameType, StreamID, Flags, FrameData} =
+        rsocket_frame:parse(ReceivedFrame),
     case FrameType of
-        setup ->
-            ?SETUP_FLAGS(MetadataPresent, ResumeEnable, Lease) = Flags,
-            ?SETUP(0, 2, KeepaliveInterval, MaxLifetime, SetupData) = Payload,
-            NewData = Data#data{
-                        keepalive_interval = KeepaliveInterval,
-                        max_lifetime = MaxLifetime
-                       },
-            {next_state, connected, NewData};
+        setup when StreamID =:= 0 ->
+            handle_setup(Flags, FrameData, Data);
         _ ->
             #data{ transport_pid = Pid, transport_mod = Mod } = Data,
             Frame = rsocket_frame:new_error(0, invalid_setup),
@@ -178,70 +173,17 @@ awaiting_setup(cast, _, Data) ->
 
 
 connected(cast, {recv, ReceivedFrame}, Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
-       stream_handlers = StreamHandlers,
-       keepalive_response_timer = TRef
-      } = Data,
-    {FrameType, StreamID, Flags, Payload} = rsocket_frame:parse(ReceivedFrame),
+    {FrameType, StreamID, Flags, FrameData} =
+        rsocket_frame:parse(ReceivedFrame),
     case FrameType of
         keepalive ->
-            ?KEEPALIVE_FLAGS(Respond) = Flags,
-            case Respond of
-                0 ->
-                    {ok, cancel} = timer:cancel(TRef);
-                1 ->
-                    Frame = rsocket_frame:new_keepalive([]),
-                    ok = Mod:send_frame(Pid, Frame)
-            end,
-            {keep_state, Data};
+            handle_keepalive(Flags, Data);
         request_fnf when StreamID =/= 0 ->
-            ?REQUEST_FNF_FLAGS(Metadata, Follows) = Flags,
-            case maps:find(fire_and_forget, StreamHandlers) of
-                error ->
-                    Error = <<"No fire-and-forget handler">>,
-                    Frame = rsocket_frame:new_error(StreamID, reject, Error),
-                    ok = Mod:send_frame(Pid, Frame),
-                    {keep_state, Data};
-                {ok, {_Mod, _Fun, _Args}} ->
-                    Error = <<"MFA tuples not yet supported">>,
-                    Frame = rsocket_frame:new_error(StreamID, reject, Error),
-                    ok = Mod:send_frame(Pid, Frame),
-                    {keep_state, Data};
-                {ok, FnfHandler} when is_function(FnfHandler, 1) ->
-                    proc_lib:spawn(fun() -> FnfHandler(Payload) end),
-                    {keep_state, Data}
-            end;
+            handle_request_fnf(Flags, StreamID, FrameData, Data);
         request_response when StreamID =/= 0 ->
-            ?REQUEST_RESPONSE_FLAGS(MetadataPresent, Follows) = Flags,
-            case maps:find(request_response, StreamHandlers) of
-                error ->
-                    Error = <<"No request-response handler">>,
-                    Frame = rsocket_frame:new_error(StreamID, reject, Error),
-                    ok = Mod:send_frame(Pid, Frame),
-                    {keep_state, Data};
-                {ok, {_Mod, _Fun, _Args}} ->
-                    Error = <<"MFA tuples not yet supported">>,
-                    Frame = rsocket_frame:new_error(StreamID, reject, Error),
-                    ok = Mod:send_frame(Pid, Frame),
-                    {keep_state, Data};
-                {ok, RRHandler} when is_function(RRHandler, 1) ->
-                    Self = self(),
-                    proc_lib:spawn(
-                      fun() ->
-                              Response = RRHandler(Payload),
-                              ok = send_payload(Self, StreamID, Response)
-                      end),
-                    {keep_state, Data}
-            end;
+            handle_request_response(Flags, StreamID, FrameData, Data);
         payload when StreamID =/= 0 ->
-            ?PAYLOAD_FLAGS(MetadataPresent, Follows, Complete, Next) = Flags,
-            case find_stream(self(), StreamID) of
-                undefined -> ok;
-                Stream    -> Stream ! {recv_payload, Payload}
-            end,
-            {keep_state, Data};
+            handle_payload(Flags, StreamID, FrameData, Data);
         _ ->
             {stop, unexpected_message}
     end;
@@ -302,6 +244,94 @@ connected(cast, close_connection, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Mod:close_connection(Pid),
     {stop, disconnect}.
+
+
+%%%===================================================================
+%%% Frame reception handlers
+%%%===================================================================
+
+handle_setup(?SETUP_FLAGS(_M, _R, _L), FrameData, Data) ->
+    ?SETUP(0, 2, KeepaliveInterval, MaxLifetime, _SetupData) = FrameData,
+    %% TODO: What do we do with SetupData?
+    NewData = Data#data{
+                keepalive_interval = KeepaliveInterval,
+                max_lifetime = MaxLifetime
+               },
+    {next_state, connected, NewData}.
+
+
+handle_keepalive(?KEEPALIVE_FLAGS(1), Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod
+      } = Data,
+    Frame = rsocket_frame:new_keepalive([]),
+    ok = Mod:send_frame(Pid, Frame),
+    {keep_state, Data};
+
+handle_keepalive(?KEEPALIVE_FLAGS(0), Data) ->
+    #data{ keepalive_response_timer = TRef } = Data,
+    {ok, cancel} = timer:cancel(TRef),
+    {keep_state, Data}.
+
+
+handle_request_fnf(?REQUEST_FNF_FLAGS(_M, _F), StreamID, FrameData, Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       stream_handlers = StreamHandlers
+      } = Data,
+    case maps:find(fire_and_forget, StreamHandlers) of
+        error ->
+            Error = <<"No fire-and-forget handler">>,
+            Frame = rsocket_frame:new_error(StreamID, reject, Error),
+            ok = Mod:send_frame(Pid, Frame),
+            {keep_state, Data};
+        {ok, {_Mod, _Fun, _Args}} ->
+            Error = <<"MFA tuples not yet supported">>,
+            Frame = rsocket_frame:new_error(StreamID, reject, Error),
+            ok = Mod:send_frame(Pid, Frame),
+            {keep_state, Data};
+        {ok, FnfHandler} when is_function(FnfHandler, 1) ->
+            proc_lib:spawn(fun() -> FnfHandler(FrameData) end),
+            {keep_state, Data}
+    end.
+
+
+handle_request_response(?REQUEST_RESPONSE_FLAGS(_M, _F), ID, FrameData, Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       stream_handlers = StreamHandlers
+      } = Data,
+    case maps:find(request_response, StreamHandlers) of
+        error ->
+            Error = <<"No request-response handler">>,
+            Frame = rsocket_frame:new_error(ID, reject, Error),
+            ok = Mod:send_frame(Pid, Frame),
+            {keep_state, Data};
+        {ok, {_Mod, _Fun, _Args}} ->
+            Error = <<"MFA tuples not yet supported">>,
+            Frame = rsocket_frame:new_error(ID, reject, Error),
+            ok = Mod:send_frame(Pid, Frame),
+            {keep_state, Data};
+        {ok, RRHandler} when is_function(RRHandler, 1) ->
+            Self = self(),
+            proc_lib:spawn(
+              fun() ->
+                      Response = RRHandler(FrameData),
+                      ok = send_payload(Self, ID, Response)
+              end),
+            {keep_state, Data}
+    end.
+
+
+handle_payload(?PAYLOAD_FLAGS(_M, _F, _C, _N), StreamID, FrameData, Data) ->
+    case find_stream(self(), StreamID) of
+        undefined -> ok;
+        Stream    -> Stream ! {recv_payload, FrameData}
+    end,
+    {keep_state, Data}.
 
 
 %%%===================================================================
