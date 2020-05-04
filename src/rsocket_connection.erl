@@ -262,12 +262,23 @@ connected(cast, close_connection, Data) ->
 %%% Frame reception handlers
 %%%===================================================================
 
-handle_setup(?SETUP_FLAGS(_M, _R, _L), FrameData, Data) ->
+handle_setup(?SETUP_FLAGS(M, _R, _L), FrameData, Data) ->
     ?SETUP(0, 2, KeepaliveInterval, MaxLifetime,
            _MDMTL, MetadataMimeType,
            _DMTL, DataMimeType,
-           _SetupData) = FrameData,
-    %% TODO: What do we do with SetupData (and metadata)?
+           SetupData) = FrameData,
+    _Map = case M of
+               0 ->
+                   #{ payload => SetupData };
+               1 ->
+                   ?METADATA(_Size, Metadata, Payload) = SetupData,
+                   #{ payload => Payload, metadata => Metadata }
+           end,
+    %% TODO: What do we do with SETUP Data and Metadata?
+    %% From the RSocket spec:
+    %% "Setup Data: includes payload describing connection capabilities of the
+    %% endpoint sending the Setup header."
+    %%
     NewData = Data#data{
                 keepalive_interval = KeepaliveInterval,
                 max_lifetime = MaxLifetime,
