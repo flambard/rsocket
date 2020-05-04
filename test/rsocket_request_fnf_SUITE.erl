@@ -1,4 +1,4 @@
--module(rsocket_SUITE).
+-module(rsocket_request_fnf_SUITE).
 
 -compile(export_all).
 
@@ -33,28 +33,10 @@ groups() ->
 
 all() ->
     [
-     test_open_close_connection,
      test_client_fnf,
      test_client_fnf_with_metadata,
      test_server_fnf
     ].
-
-
-test_open_close_connection(_Config) ->
-    Self = self(),
-    Ref = make_ref(),
-    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
-    Config = #{ at_connect => AtConnectFun,
-                handlers => #{}
-              },
-    {ok, Listener} = rsocket_loopback:start_listener(Config),
-    {ok, ClientRSocket} = rsocket_loopback:connect(Listener),
-    receive
-        {connected, Ref, _ServerRSocket} ->
-            ok = rsocket:close_connection(ClientRSocket)
-    after 10000 ->
-            exit(connection_failed)
-    end.
 
 
 test_client_fnf(_Config) ->
