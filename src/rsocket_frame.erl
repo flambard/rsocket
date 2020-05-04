@@ -6,6 +6,7 @@
 -export([
          parse/1,
          new_keepalive/1,
+         new_metadata_push/1,
          new_setup/4,
          new_request_fnf/3,
          new_request_response/3,
@@ -47,6 +48,11 @@ new_keepalive(Options) ->
     Flags = ?KEEPALIVE_FLAGS(Respond),
     K = ?KEEPALIVE,
     ?FRAME_HEADER(0, ?FRAME_TYPE_KEEPALIVE, Flags, K).
+
+new_metadata_push(Metadata) ->
+    Flags = ?METADATA_PUSH_FLAGS,
+    M = ?METADATA_PUSH(Metadata),
+    ?FRAME_HEADER(0, ?FRAME_TYPE_METADATA_PUSH, Flags, M).
 
 new_setup(TimeBetweenKeepaliveFrames, MaxLifetime,
           MetadataMimeType, DataMimeType) ->

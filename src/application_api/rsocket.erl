@@ -6,7 +6,8 @@
          call/3,
          cast/2,
          cast/3,
-         close_connection/1
+         close_connection/1,
+         metadata_push/2
         ]).
 
 %%%===================================================================
@@ -36,6 +37,9 @@ cast(Connection, Message, Options) ->
 
 close_connection(Connection) ->
     rsocket_connection:close(Connection).
+
+metadata_push(Connection, Metadata) ->
+    rsocket_connection:send_metadata_push(Connection, Metadata).
 
 
 %%%===================================================================

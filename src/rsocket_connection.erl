@@ -8,6 +8,7 @@
          start_link/4,
          recv_frame/2,
          send_keepalive/1,
+         send_metadata_push/2,
          send_request_fnf/3,
          send_request_response/4,
          send_payload/4,
@@ -79,6 +80,9 @@ recv_frame(Server, Frame) ->
 
 send_keepalive(Server) ->
     gen_statem:cast(Server, send_keepalive).
+
+send_metadata_push(Server, Metadata) ->
+    gen_statem:cast(Server, {send_metadata_push, Metadata}).
 
 send_request_fnf(Server, Message, Options) ->
     gen_statem:cast(Server, {send_request_fnf, Message, Options}).
@@ -190,6 +194,8 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
     case FrameType of
         keepalive ->
             handle_keepalive(Flags, Data);
+        metadata_push when StreamID =:= 0 ->
+            handle_metadata_push(FrameData, Data);
         request_fnf when StreamID =/= 0 ->
             handle_request_fnf(Flags, StreamID, FrameData, Data);
         request_response when StreamID =/= 0 ->
@@ -199,6 +205,15 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
         _ ->
             {stop, unexpected_message}
     end;
+
+connected(cast, {send_metadata_push, Metadata}, Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod
+      } = Data,
+    Frame = rsocket_frame:new_metadata_push(Metadata),
+    ok = Mod:send_frame(Pid, Frame),
+    {keep_state, Data};
 
 connected(cast, {send_request_fnf, Message, Options}, Data) ->
     #data{
@@ -300,6 +315,23 @@ handle_keepalive(?KEEPALIVE_FLAGS(1), Data) ->
 handle_keepalive(?KEEPALIVE_FLAGS(0), Data) ->
     #data{ keepalive_response_timer = TRef } = Data,
     {ok, cancel} = timer:cancel(TRef),
+    {keep_state, Data}.
+
+
+handle_metadata_push(Metadata, Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       stream_handlers = StreamHandlers
+      } = Data,
+    case maps:find(metadata_push, StreamHandlers) of
+        error ->
+            Error = <<"No metadata-push handler">>,
+            Frame = rsocket_frame:new_error(0, reject, Error),
+            ok = Mod:send_frame(Pid, Frame);
+        {ok, MetadataPushHandler} when is_function(MetadataPushHandler, 1) ->
+            proc_lib:spawn(fun() -> MetadataPushHandler(Metadata) end)
+    end,
     {keep_state, Data}.
 
 

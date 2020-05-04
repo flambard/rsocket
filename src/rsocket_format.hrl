@@ -202,3 +202,22 @@
           (ErrorData) /binary
         >>
        ).
+
+
+%%%
+%%% METADATA_PUSH
+%%%
+
+-define(METADATA_PUSH_FLAGS,
+        <<
+          0 :1,
+          1 :1,
+          0 :8
+        >>
+       ).
+
+-define(METADATA_PUSH(Metadata),
+        <<
+          (Metadata) /binary
+        >>
+       ).
