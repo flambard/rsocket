@@ -6,7 +6,7 @@
 -export([
          parse/1,
          new_keepalive/1,
-         new_setup/2,
+         new_setup/4,
          new_request_fnf/3,
          new_request_response/3,
          new_payload/3,
@@ -48,9 +48,14 @@ new_keepalive(Options) ->
     K = ?KEEPALIVE,
     ?FRAME_HEADER(0, ?FRAME_TYPE_KEEPALIVE, Flags, K).
 
-new_setup(TimeBetweenKeepaliveFrames, MaxLifetime) ->
+new_setup(TimeBetweenKeepaliveFrames, MaxLifetime,
+          MetadataMimeType, DataMimeType) ->
     Flags = ?SETUP_FLAGS(0, 0, 0),
-    Setup = ?SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime, <<>>),
+    Payload = <<>>,
+    Setup = ?SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime,
+                   byte_size(MetadataMimeType), MetadataMimeType,
+                   byte_size(DataMimeType), DataMimeType,
+                   Payload),
     ?FRAME_HEADER(0, ?FRAME_TYPE_SETUP, Flags, Setup).
 
 new_request_fnf(StreamID, Message, Options) ->

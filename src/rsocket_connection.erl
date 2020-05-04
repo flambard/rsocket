@@ -38,7 +38,9 @@
          next_stream_id,
          keepalive_interval,
          max_lifetime,
-         keepalive_response_timer
+         keepalive_response_timer,
+         metadata_mime_type,
+         data_mime_type
         }).
 
 -define(CLIENT_INITIAL_STREAM_ID, 1).
@@ -47,7 +49,10 @@
 -define(OPTION_DEFAULTS,
         #{
           keepalive_interval => 3000,
-          max_lifetime => 4000
+          max_lifetime => 4000,
+          %% TODO: Are there reasonable defaults for MIME types?
+          metadata_mime_type => <<"application/json">>,
+          data_mime_type => <<"application/json">>
          }
        ).
 
@@ -108,7 +113,9 @@ init([accept, Module, Transport, Handlers, _Options]) ->
 
 init([initiate, Module, Transport, Handlers, Options]) ->
     #{ keepalive_interval := KeepaliveInterval,
-       max_lifetime := MaxLifetime
+       max_lifetime := MaxLifetime,
+       metadata_mime_type := MetadataMimeType,
+       data_mime_type := DataMimeType
      } = Options,
     Data = #data{
               transport_mod = Module,
@@ -116,7 +123,9 @@ init([initiate, Module, Transport, Handlers, Options]) ->
               stream_handlers = Handlers,
               next_stream_id = ?CLIENT_INITIAL_STREAM_ID,
               keepalive_interval = KeepaliveInterval,
-              max_lifetime = MaxLifetime
+              max_lifetime = MaxLifetime,
+              metadata_mime_type = MetadataMimeType,
+              data_mime_type = DataMimeType
              },
     gen_statem:cast(self(), send_setup),
     {ok, setup_connection, Data}.
@@ -146,9 +155,12 @@ setup_connection(cast, send_setup, Data) ->
        transport_pid = Pid,
        transport_mod = Mod,
        keepalive_interval = Interval,
-       max_lifetime = MaxLifetime
+       max_lifetime = MaxLifetime,
+       metadata_mime_type = MetadataMimeType,
+       data_mime_type = DataMimeType
       } = Data,
-    Frame = rsocket_frame:new_setup(Interval, MaxLifetime),
+    Frame = rsocket_frame:new_setup(Interval, MaxLifetime,
+                                    MetadataMimeType, DataMimeType),
     ok = Mod:send_frame(Pid, Frame),
     {ok, _TRef} =
         timer:apply_interval(Interval, ?MODULE, send_keepalive, [self()]),
@@ -251,11 +263,16 @@ connected(cast, close_connection, Data) ->
 %%%===================================================================
 
 handle_setup(?SETUP_FLAGS(_M, _R, _L), FrameData, Data) ->
-    ?SETUP(0, 2, KeepaliveInterval, MaxLifetime, _SetupData) = FrameData,
-    %% TODO: What do we do with SetupData?
+    ?SETUP(0, 2, KeepaliveInterval, MaxLifetime,
+           _MDMTL, MetadataMimeType,
+           _DMTL, DataMimeType,
+           _SetupData) = FrameData,
+    %% TODO: What do we do with SetupData (and metadata)?
     NewData = Data#data{
                 keepalive_interval = KeepaliveInterval,
-                max_lifetime = MaxLifetime
+                max_lifetime = MaxLifetime,
+                metadata_mime_type = MetadataMimeType,
+                data_mime_type = DataMimeType
                },
     {next_state, connected, NewData}.
 

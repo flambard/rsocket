@@ -54,8 +54,12 @@
         >>
        ).
 
--define(SETUP(MajorVersion, MinorVersion, TimeBetweenKeepaliveFrames,
-              MaxLifetime, MetadataAndPayload),
+-define(SETUP(MajorVersion, MinorVersion,
+              TimeBetweenKeepaliveFrames,
+              MaxLifetime,
+              MetadataMimeTypeLength, MetadataMimeType,
+              DataMimeTypeLength, DataMimeType,
+              MetadataAndPayload),
         <<
           (MajorVersion)               :16,
           (MinorVersion)               :16,
@@ -63,12 +67,21 @@
           (TimeBetweenKeepaliveFrames) :31,
           0                            :1,
           (MaxLifetime)                :31,
+          (MetadataMimeTypeLength)     :8,
+          (MetadataMimeType)           :(MetadataMimeTypeLength)/binary,
+          (DataMimeTypeLength)         :8,
+          (DataMimeType)               :(DataMimeTypeLength)/binary,
           (MetadataAndPayload)         /binary
         >>
        ).
 
--define(SETUP(MajorVersion, MinorVersion, TimeBetweenKeepaliveFrames,
-              MaxLifetime, TokenLength, ResumeIdentificationToken),
+-define(SETUP(MajorVersion, MinorVersion,
+              TimeBetweenKeepaliveFrames,
+              MaxLifetime,
+              TokenLength, ResumeIdentificationToken,
+              MetadataMimeTypeLength, MetadataMimeType,
+              DataMimeTypeLength, DataMimeType,
+              MetadataAndPayload),
         <<
           (MajorVersion)               :16,
           (MinorVersion)               :16,
@@ -77,7 +90,12 @@
           0                            :1,
           (MaxLifetime)                :31,
           (TokenLength)                :16,
-          (ResumeIdentificationToken)  /binary
+          (ResumeIdentificationToken)  :(TokenLength)/binary,
+          (MetadataMimeTypeLength)     :8,
+          (MetadataMimeType)           :(MetadataMimeTypeLength)/binary,
+          (DataMimeTypeLength)         :8,
+          (DataMimeType)               :(DataMimeTypeLength)/binary,
+          (MetadataAndPayload)         /binary
         >>
        ).
 
