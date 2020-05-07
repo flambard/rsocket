@@ -7,6 +7,8 @@
          cast/2,
          cast/3,
          close_connection/1,
+         lease/3,
+         lease/4,
          metadata_push/2
         ]).
 
@@ -37,6 +39,13 @@ cast(Connection, Message, Options) ->
 
 close_connection(Connection) ->
     rsocket_connection:close(Connection).
+
+lease(Connection, TimeToLive, NumberOfRequests) ->
+    lease(Connection, TimeToLive, NumberOfRequests, []).
+
+lease(Connection, TimeToLive, NumberOfRequests, Options) ->
+    rsocket_connection:send_lease(
+      Connection, TimeToLive, NumberOfRequests, Options).
 
 metadata_push(Connection, Metadata) ->
     rsocket_connection:send_metadata_push(Connection, Metadata).

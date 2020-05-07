@@ -8,6 +8,7 @@
          start_link/5,
          recv_frame/2,
          send_keepalive/1,
+         send_lease/4,
          send_metadata_push/2,
          send_request_fnf/3,
          send_request_response/4,
@@ -85,6 +86,10 @@ recv_frame(Server, Frame) ->
 
 send_keepalive(Server) ->
     gen_statem:cast(Server, send_keepalive).
+
+send_lease(Server, TimeToLive, NumberOfRequests, Options) ->
+    gen_statem:cast(
+      Server, {send_lease, TimeToLive, NumberOfRequests, Options}).
 
 send_metadata_push(Server, Metadata) ->
     gen_statem:cast(Server, {send_metadata_push, Metadata}).
@@ -251,6 +256,22 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
         _ ->
             {stop, unexpected_message}
     end;
+
+connected(cast, {send_lease, TimeToLive, NumberOfRequests, Options}, Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       use_leasing = UseLeasing,
+       recv_lease = Lease
+      } = Data,
+    case UseLeasing of
+        false -> ok;
+        true  ->
+            L = rsocket_frame:new_lease(TimeToLive, NumberOfRequests, Options),
+            ok = Mod:send_frame(Pid, L),
+            ok = rsocket_lease:initiate(Lease, TimeToLive, NumberOfRequests)
+    end,
+    {keep_state, Data};
 
 connected(cast, {send_metadata_push, Metadata}, Data) ->
     #data{
