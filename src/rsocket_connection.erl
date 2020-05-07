@@ -286,31 +286,56 @@ connected(cast, {send_request_fnf, Message, Options}, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
-       next_stream_id = ID
+       next_stream_id = ID,
+       use_leasing = UseLeasing,
+       send_lease = Lease
       } = Data,
-    Frame = rsocket_frame:new_request_fnf(ID, Message, Options),
-    ok = Mod:send_frame(Pid, Frame),
-    {keep_state, Data#data{ next_stream_id = ID + 2 }};
+    N = case UseLeasing of
+            false -> 1;
+            true  -> rsocket_lease:spend_1(Lease)
+        end,
+    case N of
+        0 ->
+            %% TODO: Return an error to the application?
+            {keep_state, Data};
+        _ ->
+            Frame = rsocket_frame:new_request_fnf(ID, Message, Options),
+            ok = Mod:send_frame(Pid, Frame),
+            {keep_state, Data#data{ next_stream_id = ID + 2 }}
+    end;
 
 connected(cast, {send_request_response, Request, Handler, Options}, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
-       next_stream_id = StreamID
+       next_stream_id = StreamID,
+       use_leasing = UseLeasing,
+       send_lease = Lease
       } = Data,
-    Self = self(),
-    proc_lib:spawn(fun() ->
-                           register_stream(Self, StreamID),
-                           receive
-                               {recv_payload, Payload, PayloadOptions} ->
-                                   Handler({ok, Payload, PayloadOptions})
-                           after 5000 ->
-                                   Handler({error, timeout})
-                           end
-                   end),
-    Frame = rsocket_frame:new_request_response(StreamID, Request, Options),
-    ok = Mod:send_frame(Pid, Frame),
-    {keep_state, Data#data{ next_stream_id = StreamID + 2 }};
+    N = case UseLeasing of
+            false -> 1;
+            true  -> rsocket_lease:spend_1(Lease)
+        end,
+    case N of
+        0 ->
+            %% TODO: Return an error to the application?
+            {keep_state, Data};
+        _ ->
+            Self = self(),
+            proc_lib:spawn(
+              fun() ->
+                      register_stream(Self, StreamID),
+                      receive
+                          {recv_payload, Payload, PayloadOptions} ->
+                              Handler({ok, Payload, PayloadOptions})
+                      after 5000 ->
+                              Handler({error, timeout})
+                      end
+              end),
+            Frame = rsocket_frame:new_request_response(StreamID, Request, Options),
+            ok = Mod:send_frame(Pid, Frame),
+            {keep_state, Data#data{ next_stream_id = StreamID + 2 }}
+    end;
 
 connected(cast, {send_payload, StreamID, Payload, Options}, Data) ->
     #data{ transport_pid = Pid, transport_mod = Mod } = Data,

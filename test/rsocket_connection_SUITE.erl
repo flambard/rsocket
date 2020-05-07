@@ -37,7 +37,8 @@ all() ->
      test_client_push_metadata,
      test_server_push_metadata,
      test_client_not_honoring_lease,
-     test_client_honoring_lease
+     test_client_honoring_lease,
+     test_client_uses_expired_lease
     ].
 
 
@@ -150,6 +151,7 @@ test_client_honoring_lease(_Config) ->
     after 10000 ->
             exit(connection_failed)
     end,
+    receive after 500 -> ok end,
     Message = <<"Expected Request">>,
     ok = rsocket:cast(RSocket, Message),
     receive
@@ -157,5 +159,38 @@ test_client_honoring_lease(_Config) ->
             ok
     after 500 ->
             exit(request_fnf_did_not_went_through_with_lease)
+    end,
+    ok = rsocket:close_connection(RSocket).
+
+test_client_uses_expired_lease(_Config) ->
+    Self = self(),
+    Ref = make_ref(),
+    FnfHandler = fun(#{request := Message}) ->
+                         Self ! {fnf, Ref, Message}
+                 end,
+    AtConnectFun = fun(RSocket) ->
+                           Self ! {connected, Ref, RSocket}
+                   end,
+    ServerConfig = #{ at_connect => AtConnectFun,
+                      handlers => #{ fire_and_forget => FnfHandler }},
+    {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
+    ClientConfig = #{ leasing => true },
+    {ok, RSocket} = rsocket_loopback:connect(Listener, ClientConfig),
+    receive
+        {connected, Ref, ServerRSocket} ->
+            TimeToLive = 500,
+            NumberOfRequests = 1,
+            ok = rsocket:lease(ServerRSocket, TimeToLive, NumberOfRequests)
+    after 10000 ->
+            exit(connection_failed)
+    end,
+    receive after 1000 -> ok end,
+    Message = <<"Expected Request">>,
+    ok = rsocket:cast(RSocket, Message),
+    receive
+        {fnf, Ref, Message} ->
+            exit(request_fnf_went_through_with_expired_lease)
+    after 500 ->
+            ok
     end,
     ok = rsocket:close_connection(RSocket).
