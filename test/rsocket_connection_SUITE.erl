@@ -35,7 +35,8 @@ all() ->
     [
      test_open_close_connection,
      test_client_push_metadata,
-     test_server_push_metadata
+     test_server_push_metadata,
+     test_client_not_honoring_lease
     ].
 
 
@@ -96,3 +97,32 @@ test_server_push_metadata(_Config) ->
     end,
     ok = rsocket:close_connection(ClientRSocket).
 
+test_client_not_honoring_lease(_Config) ->
+    Self = self(),
+    Ref = make_ref(),
+    FnfHandler = fun(#{request := Message}) ->
+                         Self ! {fnf, Ref, Message}
+                 end,
+    AtConnectFun = fun(RSocket) ->
+                           Self ! {connected, Ref, RSocket}
+                   end,
+    ServerConfig = #{ at_connect => AtConnectFun,
+                      handlers => #{ fire_and_forget => FnfHandler }},
+    {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
+    ClientConfig = #{ leasing => true },
+    {ok, RSocket} = rsocket_loopback:connect(Listener, ClientConfig),
+    Message = <<"Unsolicited Request">>,
+    ok = rsocket:cast(RSocket, Message),
+    receive
+        {connected, Ref, _ServerRSocket} ->
+            ok
+    after 10000 ->
+            exit(connection_failed)
+    end,
+    receive
+        {fnf, Ref, Message} ->
+            exit(request_fnf_went_through_without_lease)
+    after 500 ->
+            ok
+    end,
+    ok = rsocket:close_connection(RSocket).

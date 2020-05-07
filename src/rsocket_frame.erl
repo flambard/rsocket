@@ -7,10 +7,11 @@
          parse/1,
          new_keepalive/1,
          new_metadata_push/1,
-         new_setup/4,
+         new_setup/5,
          new_request_fnf/3,
          new_request_response/3,
          new_payload/3,
+         new_lease/3,
          new_error/2,
          new_error/3
         ]).
@@ -55,8 +56,10 @@ new_metadata_push(Metadata) ->
     ?FRAME_HEADER(0, ?FRAME_TYPE_METADATA_PUSH, Flags, M).
 
 new_setup(TimeBetweenKeepaliveFrames, MaxLifetime,
-          MetadataMimeType, DataMimeType) ->
-    Flags = ?SETUP_FLAGS(0, 0, 0),
+          MetadataMimeType, DataMimeType,
+          Options) ->
+    L = bool_to_bit(proplists:is_defined(leasing, Options)),
+    Flags = ?SETUP_FLAGS(0, 0, L),
     Payload = <<>>,
     Setup = ?SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime,
                    byte_size(MetadataMimeType), MetadataMimeType,
@@ -109,6 +112,18 @@ new_payload(StreamID, Payload, Options) ->
             Size = byte_size(Metadata),
             M = ?METADATA(Size, Metadata, P),
             ?FRAME_HEADER(StreamID, ?FRAME_TYPE_PAYLOAD, Flags, M)
+    end.
+
+new_lease(TimeToLive, NumberOfRequests, Options) ->
+    case proplists:lookup(metadata, Options) of
+        none ->
+            Flags = ?LEASE_FLAGS(0),
+            L = ?LEASE(TimeToLive, NumberOfRequests, <<>>),
+            ?FRAME_HEADER(0, ?FRAME_TYPE_LEASE, Flags, L);
+        {metadata, Metadata} ->
+            Flags = ?LEASE_FLAGS(1),
+            L = ?LEASE(TimeToLive, NumberOfRequests, Metadata),
+            ?FRAME_HEADER(0, ?FRAME_TYPE_LEASE, Flags, L)
     end.
 
 new_error(StreamID, ErrorType) ->

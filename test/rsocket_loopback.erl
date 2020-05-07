@@ -77,7 +77,9 @@ accept_connection(Config) ->
 initiate_connection(Pid, Application, Config) ->
     Pid ! {connect, self()},
     Handlers = maps:get(handlers, Config, #{}),
-    {ok, RSocket} = rsocket_transport:initiate_connection(?MODULE, Handlers),
+    Options = maps:remove(handlers, Config),
+    {ok, RSocket} =
+        rsocket_transport:initiate_connection(?MODULE, Handlers, Options),
     Application ! {rsocket, RSocket},
     loop(#{pid => Pid, rsocket => RSocket}).
 

@@ -221,3 +221,26 @@
           (Metadata) /binary
         >>
        ).
+
+
+%%%
+%%% LEASE
+%%%
+
+-define(LEASE_FLAGS(MetadataPresent),
+        <<
+          0                 :1,
+          (MetadataPresent) :1,
+          0                 :8
+        >>
+       ).
+
+-define(LEASE(TimeToLive, NumberOfRequests, Metadata),
+        <<
+          0                  :1,
+          (TimeToLive)       :31,
+          0                  :1,
+          (NumberOfRequests) :31,
+          (Metadata)         /binary
+        >>
+       ).

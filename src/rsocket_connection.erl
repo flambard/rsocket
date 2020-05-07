@@ -5,7 +5,7 @@
 
 %% API
 -export([
-         start_link/4,
+         start_link/5,
          recv_frame/2,
          send_keepalive/1,
          send_metadata_push/2,
@@ -41,8 +41,12 @@
          max_lifetime,
          keepalive_response_timer,
          metadata_mime_type,
-         data_mime_type
+         data_mime_type,
+         use_leasing = false,
+         send_lease,
+         recv_lease
         }).
+
 
 -define(CLIENT_INITIAL_STREAM_ID, 1).
 -define(SERVER_INITIAL_STREAM_ID, 2).
@@ -51,6 +55,7 @@
         #{
           keepalive_interval => 3000,
           max_lifetime => 4000,
+          leasing => false,
           %% TODO: Are there reasonable defaults for MIME types?
           metadata_mime_type => <<"application/json">>,
           data_mime_type => <<"application/json">>
@@ -65,12 +70,12 @@
 -spec start_link(Mode :: accept | initiate,
                  Module :: atom(),
                  Transport :: pid(),
-                 Handlers :: map()) ->
+                 Handlers :: map(),
+                 Options :: map()) ->
           {ok, Pid :: pid()} |
           ignore |
           {error, Error :: term()}.
-start_link(Mode, Module, Transport, Handlers) ->
-    Options = #{}, %% TODO: Take options as parameter
+start_link(Mode, Module, Transport, Handlers, Options) ->
     AllOptions = maps:merge(?OPTION_DEFAULTS, Options),
     gen_statem:start_link(
       ?MODULE, [Mode, Module, Transport, Handlers, AllOptions], []).
@@ -119,20 +124,34 @@ init([initiate, Module, Transport, Handlers, Options]) ->
     #{ keepalive_interval := KeepaliveInterval,
        max_lifetime := MaxLifetime,
        metadata_mime_type := MetadataMimeType,
-       data_mime_type := DataMimeType
+       data_mime_type := DataMimeType,
+       leasing := UseLeasing
      } = Options,
-    Data = #data{
-              transport_mod = Module,
-              transport_pid = Transport,
-              stream_handlers = Handlers,
-              next_stream_id = ?CLIENT_INITIAL_STREAM_ID,
-              keepalive_interval = KeepaliveInterval,
-              max_lifetime = MaxLifetime,
-              metadata_mime_type = MetadataMimeType,
-              data_mime_type = DataMimeType
-             },
-    gen_statem:cast(self(), send_setup),
-    {ok, setup_connection, Data}.
+    Data0 = #data{
+               transport_mod = Module,
+               transport_pid = Transport,
+               stream_handlers = Handlers,
+               next_stream_id = ?CLIENT_INITIAL_STREAM_ID,
+               keepalive_interval = KeepaliveInterval,
+               max_lifetime = MaxLifetime,
+               metadata_mime_type = MetadataMimeType,
+               data_mime_type = DataMimeType,
+               use_leasing = UseLeasing
+              },
+    Data1 = case UseLeasing of
+                false -> Data0;
+                true  ->
+                    Data0#data{
+                      send_lease = rsocket_lease:new(),
+                      recv_lease = rsocket_lease:new()
+                     }
+            end,
+    SetupOptions = case UseLeasing of
+                       false -> [];
+                       true  -> [leasing]
+                   end,
+    gen_statem:cast(self(), {send_setup, SetupOptions}),
+    {ok, setup_connection, Data1}.
 
 
 -spec terminate(Reason :: term(), State :: term(), Data :: term()) ->
@@ -154,7 +173,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% States
 %%%===================================================================
 
-setup_connection(cast, send_setup, Data) ->
+setup_connection(cast, {send_setup, Options}, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
@@ -164,7 +183,8 @@ setup_connection(cast, send_setup, Data) ->
        data_mime_type = DataMimeType
       } = Data,
     Frame = rsocket_frame:new_setup(Interval, MaxLifetime,
-                                    MetadataMimeType, DataMimeType),
+                                    MetadataMimeType, DataMimeType,
+                                    Options),
     ok = Mod:send_frame(Pid, Frame),
     {ok, _TRef} =
         timer:apply_interval(Interval, ?MODULE, send_keepalive, [self()]),
@@ -189,6 +209,12 @@ awaiting_setup(cast, _, Data) ->
 
 
 connected(cast, {recv, ReceivedFrame}, Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       use_leasing = UseLeasing,
+       recv_lease = RecvLease
+      } = Data,
     {FrameType, StreamID, Flags, FrameData} =
         rsocket_frame:parse(ReceivedFrame),
     case FrameType of
@@ -196,12 +222,32 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             handle_keepalive(Flags, Data);
         metadata_push when StreamID =:= 0 ->
             handle_metadata_push(FrameData, Data);
-        request_fnf when StreamID =/= 0 ->
+        request_fnf when StreamID =/= 0 andalso not UseLeasing ->
             handle_request_fnf(Flags, StreamID, FrameData, Data);
-        request_response when StreamID =/= 0 ->
+        request_fnf when StreamID =/= 0 andalso UseLeasing ->
+            case rsocket_lease:spend_1(RecvLease) of
+                0 ->
+                    Frame = rsocket_frame:new_error(StreamID, rejected),
+                    ok = Mod:send_frame(Pid, Frame),
+                    {keep_state, Data};
+                _ ->
+                    handle_request_fnf(Flags, StreamID, FrameData, Data)
+            end;
+        request_response when StreamID =/= 0 andalso not UseLeasing ->
             handle_request_response(Flags, StreamID, FrameData, Data);
+        request_response when StreamID =/= 0 andalso UseLeasing ->
+            case rsocket_lease:spend_1(RecvLease) of
+                0 ->
+                    Frame = rsocket_frame:new_error(StreamID, rejected),
+                    ok = Mod:send_frame(Pid, Frame),
+                    {keep_state, Data};
+                _ ->
+                    handle_request_response(Flags, StreamID, FrameData, Data)
+            end;
         payload when StreamID =/= 0 ->
             handle_payload(Flags, StreamID, FrameData, Data);
+        lease when StreamID =:= 0 ->
+            handle_lease(Flags, FrameData, Data);
         _ ->
             {stop, unexpected_message}
     end;
@@ -277,7 +323,7 @@ connected(cast, close_connection, Data) ->
 %%% Frame reception handlers
 %%%===================================================================
 
-handle_setup(?SETUP_FLAGS(M, _R, _L), FrameData, Data) ->
+handle_setup(?SETUP_FLAGS(M, _R, L), FrameData, Data) ->
     ?SETUP(0, 2, KeepaliveInterval, MaxLifetime,
            _MDMTL, MetadataMimeType,
            _DMTL, DataMimeType,
@@ -294,13 +340,22 @@ handle_setup(?SETUP_FLAGS(M, _R, _L), FrameData, Data) ->
     %% "Setup Data: includes payload describing connection capabilities of the
     %% endpoint sending the Setup header."
     %%
-    NewData = Data#data{
-                keepalive_interval = KeepaliveInterval,
-                max_lifetime = MaxLifetime,
-                metadata_mime_type = MetadataMimeType,
-                data_mime_type = DataMimeType
-               },
-    {next_state, connected, NewData}.
+    Data0 = Data#data{
+              keepalive_interval = KeepaliveInterval,
+              max_lifetime = MaxLifetime,
+              metadata_mime_type = MetadataMimeType,
+              data_mime_type = DataMimeType,
+              use_leasing = bit_to_bool(L)
+             },
+    Data1 = case L of
+                0 -> Data0;
+                1 ->
+                    Data0#data{
+                      send_lease = rsocket_lease:new(),
+                      recv_lease = rsocket_lease:new()
+                     }
+            end,
+    {next_state, connected, Data1}.
 
 
 handle_keepalive(?KEEPALIVE_FLAGS(1), Data) ->
@@ -426,6 +481,16 @@ handle_payload(?PAYLOAD_FLAGS(M, F, C, N), StreamID, FrameData, Data) ->
     end,
     {keep_state, Data}.
 
+handle_lease(?LEASE_FLAGS(_M), FrameData, Data) ->
+    #data{
+       use_leasing = true,
+       send_lease = SendLease
+      } = Data,
+    ?LEASE(TimeToLive, NumberOfRequests, _Metadata) = FrameData,
+    %% TODO: What to do with the (possibly included) metadata?
+    ok = rsocket_lease:initiate(SendLease, TimeToLive, NumberOfRequests),
+    {keep_state, Data}.
+
 
 %%%===================================================================
 %%% Internal functions
@@ -436,3 +501,6 @@ register_stream(RSocket, StreamID) ->
 
 find_stream(RSocket, StreamID) ->
     gproc:where({n, l, {rsocket_stream, RSocket, StreamID}}).
+
+bit_to_bool(0) -> false;
+bit_to_bool(1) -> true.

@@ -7,7 +7,7 @@
 %% API
 -export([
          accept_connection/2,
-         initiate_connection/2,
+         initiate_connection/3,
          recv_frame/2
         ]).
 
@@ -25,10 +25,13 @@
 accept_connection(Module, Handlers) ->
     rsocket_connection_sup:accept_connection(Module, self(), Handlers).
 
--spec initiate_connection(Module :: atom(), Handlers :: map()) ->
+-spec initiate_connection(Module :: atom(),
+                          Handlers :: map(),
+                          Options :: map()) ->
           {ok, Connection :: term()}.
-initiate_connection(Module, Handlers) ->
-    rsocket_connection_sup:initiate_connection(Module, self(), Handlers).
+initiate_connection(Module, Handlers, Options) ->
+    rsocket_connection_sup:initiate_connection(
+      Module, self(), Handlers, Options).
 
 -spec recv_frame(RSocket :: term(), Frame :: binary()) -> ok.
 recv_frame(RSocket, Frame) ->
