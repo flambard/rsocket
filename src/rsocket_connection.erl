@@ -34,6 +34,7 @@
 
 -record(data,
         {
+         at_connect,
          transport_pid,
          transport_mod,
          stream_handlers,
@@ -54,6 +55,7 @@
 
 -define(OPTION_DEFAULTS,
         #{
+          at_connect => fun(_RSocket) -> ok end,
           keepalive_interval => 3000,
           max_lifetime => 4000,
           leasing => false,
@@ -112,12 +114,14 @@ close(Server) ->
 %%%===================================================================
 
 -spec callback_mode() -> gen_statem:callback_mode_result().
-callback_mode() -> state_functions.
+callback_mode() -> [state_functions, state_enter].
 
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([accept, Module, Transport, Handlers, _Options]) ->
+init([accept, Module, Transport, Handlers, Options]) ->
+    #{ at_connect := AtConnect } = Options,
     Data = #data{
+              at_connect = AtConnect,
               transport_mod = Module,
               transport_pid = Transport,
               stream_handlers = Handlers,
@@ -126,13 +130,15 @@ init([accept, Module, Transport, Handlers, _Options]) ->
     {ok, awaiting_setup, Data};
 
 init([initiate, Module, Transport, Handlers, Options]) ->
-    #{ keepalive_interval := KeepaliveInterval,
+    #{ at_connect := AtConnect,
+       keepalive_interval := KeepaliveInterval,
        max_lifetime := MaxLifetime,
        metadata_mime_type := MetadataMimeType,
        data_mime_type := DataMimeType,
        leasing := UseLeasing
      } = Options,
     Data0 = #data{
+               at_connect = AtConnect,
                transport_mod = Module,
                transport_pid = Transport,
                stream_handlers = Handlers,
@@ -151,11 +157,6 @@ init([initiate, Module, Transport, Handlers, Options]) ->
                       recv_lease = rsocket_lease:new()
                      }
             end,
-    SetupOptions = case UseLeasing of
-                       false -> [];
-                       true  -> [leasing]
-                   end,
-    gen_statem:cast(self(), {send_setup, SetupOptions}),
     {ok, setup_connection, Data1}.
 
 
@@ -178,23 +179,43 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% States
 %%%===================================================================
 
-setup_connection(cast, {send_setup, Options}, Data) ->
+%%%
+%%% Setup Connection (client side)
+%%%
+
+setup_connection(enter, _, Data) ->
+    gen_statem:cast(self(), send_setup),
+    {keep_state, Data};
+
+setup_connection(cast, send_setup, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
        keepalive_interval = Interval,
        max_lifetime = MaxLifetime,
        metadata_mime_type = MetadataMimeType,
-       data_mime_type = DataMimeType
+       data_mime_type = DataMimeType,
+       use_leasing = UseLeasing
       } = Data,
+    SetupOptions = case UseLeasing of
+                       false -> [];
+                       true  -> [leasing]
+                   end,
     Frame = rsocket_frame:new_setup(Interval, MaxLifetime,
                                     MetadataMimeType, DataMimeType,
-                                    Options),
+                                    SetupOptions),
     ok = Mod:send_frame(Pid, Frame),
     {ok, _TRef} =
         timer:apply_interval(Interval, ?MODULE, send_keepalive, [self()]),
     {next_state, connected, Data}.
 
+
+%%%
+%%% Awaiting Setup (server side)
+%%%
+
+awaiting_setup(enter, _, Data) ->
+    {keep_state, Data};
 
 awaiting_setup(cast, {recv, ReceivedFrame}, Data) ->
     {FrameType, StreamID, Flags, FrameData} =
@@ -212,6 +233,15 @@ awaiting_setup(cast, {recv, ReceivedFrame}, Data) ->
 awaiting_setup(cast, _, Data) ->
     {keep_state, Data, [postpone]}.
 
+
+%%%
+%%% Connected (connection established)
+%%%
+
+connected(enter, _, Data) ->
+    #data{ at_connect = AtConnect } = Data,
+    AtConnect(self()),
+    {keep_state, Data};
 
 connected(cast, {recv, ReceivedFrame}, Data) ->
     #data{

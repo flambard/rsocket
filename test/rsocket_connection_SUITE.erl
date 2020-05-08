@@ -53,10 +53,11 @@ test_open_close_connection(_Config) ->
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener),
     receive
         {connected, Ref, _ServerRSocket} ->
-            ok = rsocket:close_connection(ClientRSocket)
+            ok
     after 10000 ->
             exit(connection_failed)
-    end.
+    end,
+    ok = rsocket:close_connection(ClientRSocket).
 
 test_client_push_metadata(_Config) ->
     Self = self(),

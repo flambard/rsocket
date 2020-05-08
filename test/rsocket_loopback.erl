@@ -21,18 +21,14 @@
 %%%===================================================================
 
 start_listener() ->
-    Config = #{ at_connect => fun() -> ok end,
-                handlers => #{}
-              },
+    Config = #{ handlers => #{} },
     start_listener(Config).
 
 start_listener(Config) ->
     {ok, spawn(fun() -> accept_connection(Config) end)}.
 
 connect(Pid) ->
-    Config = #{ at_connect => fun() -> ok end,
-                handlers => #{}
-              },
+    Config = #{ handlers => #{} },
     connect(Pid, Config).
 
 connect(Pid, Config) ->
@@ -64,13 +60,12 @@ close_connection(Connection) ->
 %%%===================================================================
 
 accept_connection(Config) ->
-    AtConnect = maps:get(at_connect, Config, fun(_) -> ok end),
     Handlers = maps:get(handlers, Config, #{}),
+    Options = maps:remove(handlers, Config),
     receive
         {connect, Pid} ->
             {ok, RSocket} =
-                rsocket_transport:accept_connection(?MODULE, Handlers),
-            AtConnect(RSocket),
+                rsocket_transport:accept_connection(?MODULE, Handlers, Options),
             loop(#{pid => Pid, rsocket => RSocket})
     end.
 
