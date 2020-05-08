@@ -97,10 +97,10 @@ send_metadata_push(Server, Metadata) ->
     gen_statem:cast(Server, {send_metadata_push, Metadata}).
 
 send_request_fnf(Server, Message, Options) ->
-    gen_statem:cast(Server, {send_request_fnf, Message, Options}).
+    gen_statem:call(Server, {send_request_fnf, Message, Options}).
 
 send_request_response(Server, Request, Handler, Options) ->
-    gen_statem:cast(Server, {send_request_response, Request, Handler, Options}).
+    gen_statem:call(Server, {send_request_response, Request, Handler, Options}).
 
 send_payload(Server, StreamID, Payload, Options) ->
     gen_statem:cast(Server, {send_payload, StreamID, Payload, Options}).
@@ -312,29 +312,7 @@ connected(cast, {send_metadata_push, Metadata}, Data) ->
     ok = Mod:send_frame(Pid, Frame),
     {keep_state, Data};
 
-connected(cast, {send_request_fnf, Message, Options}, Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
-       next_stream_id = ID,
-       use_leasing = UseLeasing,
-       send_lease = Lease
-      } = Data,
-    N = case UseLeasing of
-            false -> 1;
-            true  -> rsocket_lease:spend_1(Lease)
-        end,
-    case N of
-        0 ->
-            %% TODO: Return an error to the application?
-            {keep_state, Data};
-        _ ->
-            Frame = rsocket_frame:new_request_fnf(ID, Message, Options),
-            ok = Mod:send_frame(Pid, Frame),
-            {keep_state, Data#data{ next_stream_id = ID + 2 }}
-    end;
-
-connected(cast, {send_request_response, Request, Handler, Options}, Data) ->
+connected({call, From}, {send_request_fnf, Message, Options}, Data) ->
     #data{
        transport_pid = Pid,
        transport_mod = Mod,
@@ -348,8 +326,29 @@ connected(cast, {send_request_response, Request, Handler, Options}, Data) ->
         end,
     case N of
         0 ->
-            %% TODO: Return an error to the application?
-            {keep_state, Data};
+            {keep_state, Data, [{reply, From, {error, lease_expired}}]};
+        _ ->
+            Frame = rsocket_frame:new_request_fnf(StreamID, Message, Options),
+            ok = Mod:send_frame(Pid, Frame),
+            NewData = Data#data{ next_stream_id = StreamID + 2 },
+            {keep_state, NewData, [{reply, From, ok}]}
+    end;
+
+connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod,
+       next_stream_id = StreamID,
+       use_leasing = UseLeasing,
+       send_lease = Lease
+      } = Data,
+    N = case UseLeasing of
+            false -> 1;
+            true  -> rsocket_lease:spend_1(Lease)
+        end,
+    case N of
+        0 ->
+            {keep_state, Data, [{reply, F, {error, lease_expired}}]};
         _ ->
             Self = self(),
             proc_lib:spawn(
@@ -362,9 +361,10 @@ connected(cast, {send_request_response, Request, Handler, Options}, Data) ->
                               Handler({error, timeout})
                       end
               end),
-            Frame = rsocket_frame:new_request_response(StreamID, Request, Options),
-            ok = Mod:send_frame(Pid, Frame),
-            {keep_state, Data#data{ next_stream_id = StreamID + 2 }}
+            RR = rsocket_frame:new_request_response(StreamID, Request, Opts),
+            ok = Mod:send_frame(Pid, RR),
+            NewData = Data#data{ next_stream_id = StreamID + 2 },
+            {keep_state, NewData, [{reply, F, {ok, StreamID}}]}
     end;
 
 connected(cast, {send_payload, StreamID, Payload, Options}, Data) ->

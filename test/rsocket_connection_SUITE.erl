@@ -114,14 +114,14 @@ test_client_not_honoring_lease(_Config) ->
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
     ClientConfig = #{ leasing => true },
     {ok, RSocket} = rsocket_loopback:connect(Listener, ClientConfig),
-    Message = <<"Unsolicited Request">>,
-    ok = rsocket:cast(RSocket, Message),
     receive
         {connected, Ref, _ServerRSocket} ->
             ok
     after 10000 ->
             exit(connection_failed)
     end,
+    Message = <<"Unsolicited Request">>,
+    {error, lease_expired} = rsocket:cast(RSocket, Message),
     receive
         {fnf, Ref, Message} ->
             exit(request_fnf_went_through_without_lease)
@@ -187,7 +187,7 @@ test_client_uses_expired_lease(_Config) ->
     end,
     receive after 1000 -> ok end,
     Message = <<"Expected Request">>,
-    ok = rsocket:cast(RSocket, Message),
+    {error, lease_expired} = rsocket:cast(RSocket, Message),
     receive
         {fnf, Ref, Message} ->
             exit(request_fnf_went_through_with_expired_lease)

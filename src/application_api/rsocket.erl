@@ -23,12 +23,16 @@ call(Connection, Request, Options) ->
     Self = self(),
     Ref = make_ref(),
     Handler = fun(Response) -> Self ! {response, Ref, Response} end,
-    ok = rsocket_connection:send_request_response(
-           Connection, Request, Handler, Options),
-    receive
-        {response, Ref, Response} -> Response
-    after 5000 ->
-            {error, timeout}
+    SendResult = rsocket_connection:send_request_response(
+                   Connection, Request, Handler, Options),
+    case SendResult of
+        {error, lease_expired} -> {error, lease_expired};
+        {ok, _StreamID} ->
+            receive
+                {response, Ref, Response} -> Response
+            after 5000 ->
+                    {error, timeout}
+            end
     end.
 
 cast(Connection, Message) ->
