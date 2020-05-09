@@ -193,8 +193,6 @@ setup_connection(enter, _, Data) ->
 
 setup_connection(cast, send_setup, Data) ->
     #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
        keepalive_interval = Interval,
        max_lifetime = MaxLifetime,
        metadata_mime_type = MetadataMimeType,
@@ -208,7 +206,7 @@ setup_connection(cast, send_setup, Data) ->
     Frame = rsocket_frame:new_setup(Interval, MaxLifetime,
                                     MetadataMimeType, DataMimeType,
                                     SetupOptions),
-    ok = Mod:send_frame(Pid, Frame),
+    transport_frame(Frame, Data),
     {ok, _TRef} =
         timer:apply_interval(Interval, ?MODULE, send_keepalive, [self()]),
     {next_state, connected, Data}.
@@ -228,9 +226,8 @@ awaiting_setup(cast, {recv, ReceivedFrame}, Data) ->
         setup when StreamID =:= 0 ->
             handle_setup(Flags, FrameData, Data);
         _ ->
-            #data{ transport_pid = Pid, transport_mod = Mod } = Data,
             Frame = rsocket_frame:new_error(0, invalid_setup),
-            ok = Mod:send_frame(Pid, Frame),
+            transport_frame(Frame, Data),
             {stop, invalid_setup}
     end;
 
@@ -249,8 +246,6 @@ connected(enter, _, Data) ->
 
 connected(cast, {recv, ReceivedFrame}, Data) ->
     #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
        use_leasing = UseLeasing,
        recv_lease = RecvLease
       } = Data,
@@ -267,7 +262,7 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             case rsocket_lease:spend_1(RecvLease) of
                 0 ->
                     Frame = rsocket_frame:new_error(StreamID, rejected),
-                    ok = Mod:send_frame(Pid, Frame),
+                    transport_frame(Frame, Data),
                     {keep_state, Data};
                 _ ->
                     handle_request_fnf(Flags, StreamID, FrameData, Data)
@@ -278,7 +273,7 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             case rsocket_lease:spend_1(RecvLease) of
                 0 ->
                     Frame = rsocket_frame:new_error(StreamID, rejected),
-                    ok = Mod:send_frame(Pid, Frame),
+                    transport_frame(Frame, Data),
                     {keep_state, Data};
                 _ ->
                     handle_request_response(Flags, StreamID, FrameData, Data)
@@ -295,8 +290,6 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
 
 connected(cast, {send_lease, TimeToLive, NumberOfRequests, Options}, Data) ->
     #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
        use_leasing = UseLeasing,
        recv_lease = Lease
       } = Data,
@@ -304,24 +297,18 @@ connected(cast, {send_lease, TimeToLive, NumberOfRequests, Options}, Data) ->
         false -> ok;
         true  ->
             L = rsocket_frame:new_lease(TimeToLive, NumberOfRequests, Options),
-            ok = Mod:send_frame(Pid, L),
+            transport_frame(L, Data),
             ok = rsocket_lease:initiate(Lease, TimeToLive, NumberOfRequests)
     end,
     {keep_state, Data};
 
 connected(cast, {send_metadata_push, Metadata}, Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod
-      } = Data,
     Frame = rsocket_frame:new_metadata_push(Metadata),
-    ok = Mod:send_frame(Pid, Frame),
+    transport_frame(Frame, Data),
     {keep_state, Data};
 
 connected({call, From}, {send_request_fnf, Message, Options}, Data) ->
     #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
        next_stream_id = StreamID,
        use_leasing = UseLeasing,
        send_lease = Lease
@@ -335,15 +322,13 @@ connected({call, From}, {send_request_fnf, Message, Options}, Data) ->
             {keep_state, Data, [{reply, From, {error, lease_expired}}]};
         _ ->
             Frame = rsocket_frame:new_request_fnf(StreamID, Message, Options),
-            ok = Mod:send_frame(Pid, Frame),
+            transport_frame(Frame, Data),
             NewData = Data#data{ next_stream_id = StreamID + 2 },
             {keep_state, NewData, [{reply, From, ok}]}
     end;
 
 connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
     #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
        next_stream_id = StreamID,
        use_leasing = UseLeasing,
        send_lease = Lease
@@ -368,39 +353,30 @@ connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
                       end
               end),
             RR = rsocket_frame:new_request_response(StreamID, Request, Opts),
-            ok = Mod:send_frame(Pid, RR),
+            transport_frame(RR, Data),
             NewData = Data#data{ next_stream_id = StreamID + 2 },
             {keep_state, NewData, [{reply, F, {ok, StreamID}}]}
     end;
 
 connected(cast, {send_payload, StreamID, Payload, Options}, Data) ->
-    #data{ transport_pid = Pid, transport_mod = Mod } = Data,
     Frame = rsocket_frame:new_payload(StreamID, Payload, Options),
-    ok = Mod:send_frame(Pid, Frame),
+    transport_frame(Frame, Data),
     {keep_state, Data};
 
 connected(cast, send_keepalive, Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
-       max_lifetime = MaxLifetime
-      } = Data,
+    #data{ max_lifetime = MaxLifetime } = Data,
     Frame = rsocket_frame:new_keepalive([respond]),
-    ok = Mod:send_frame(Pid, Frame),
+    transport_frame(Frame, Data),
     {ok, TRef} = timer:send_after(MaxLifetime, keepalive_timeout),
     {keep_state, Data#data{ keepalive_response_timer = TRef }};
 
 connected(cast, {send_cancel, StreamID}, Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod
-      } = Data,
     case find_stream(self(), StreamID) of
         undefined -> ok;
         Stream    -> exit(Stream, canceled)
     end,
     Frame = rsocket_frame:new_cancel(StreamID),
-    ok = Mod:send_frame(Pid, Frame),
+    transport_frame(Frame, Data),
     {keep_state, Data};
 
 connected(info, keepalive_timeout, Data) ->
@@ -454,12 +430,8 @@ handle_setup(?SETUP_FLAGS(M, _R, L), FrameData, Data) ->
 
 
 handle_keepalive(?KEEPALIVE_FLAGS(1), Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod
-      } = Data,
     Frame = rsocket_frame:new_keepalive([]),
-    ok = Mod:send_frame(Pid, Frame),
+    transport_frame(Frame, Data),
     {keep_state, Data};
 
 handle_keepalive(?KEEPALIVE_FLAGS(0), Data) ->
@@ -469,16 +441,12 @@ handle_keepalive(?KEEPALIVE_FLAGS(0), Data) ->
 
 
 handle_metadata_push(Metadata, Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
-       stream_handlers = StreamHandlers
-      } = Data,
+    #data{ stream_handlers = StreamHandlers } = Data,
     case maps:find(metadata_push, StreamHandlers) of
         error ->
             Error = <<"No metadata-push handler">>,
             Frame = rsocket_frame:new_error(0, reject, Error),
-            ok = Mod:send_frame(Pid, Frame);
+            transport_frame(Frame, Data);
         {ok, MetadataPushHandler} when is_function(MetadataPushHandler, 1) ->
             proc_lib:spawn(fun() -> MetadataPushHandler(Metadata) end)
     end,
@@ -486,21 +454,17 @@ handle_metadata_push(Metadata, Data) ->
 
 
 handle_request_fnf(?REQUEST_FNF_FLAGS(M, _F), StreamID, FrameData, Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
-       stream_handlers = StreamHandlers
-      } = Data,
+    #data{ stream_handlers = StreamHandlers } = Data,
     case maps:find(fire_and_forget, StreamHandlers) of
         error ->
             Error = <<"No fire-and-forget handler">>,
             Frame = rsocket_frame:new_error(StreamID, reject, Error),
-            ok = Mod:send_frame(Pid, Frame),
+            transport_frame(Frame, Data),
             {keep_state, Data};
         {ok, {_Mod, _Fun, _Args}} ->
             Error = <<"MFA tuples not yet supported">>,
             Frame = rsocket_frame:new_error(StreamID, reject, Error),
-            ok = Mod:send_frame(Pid, Frame),
+            transport_frame(Frame, Data),
             {keep_state, Data};
         {ok, FnfHandler} when is_function(FnfHandler, 1) ->
             Map =
@@ -517,21 +481,17 @@ handle_request_fnf(?REQUEST_FNF_FLAGS(M, _F), StreamID, FrameData, Data) ->
 
 
 handle_request_response(?REQUEST_RESPONSE_FLAGS(M, _F), ID, FrameData, Data) ->
-    #data{
-       transport_pid = Pid,
-       transport_mod = Mod,
-       stream_handlers = StreamHandlers
-      } = Data,
+    #data{ stream_handlers = StreamHandlers } = Data,
     case maps:find(request_response, StreamHandlers) of
         error ->
             Error = <<"No request-response handler">>,
             Frame = rsocket_frame:new_error(ID, reject, Error),
-            ok = Mod:send_frame(Pid, Frame),
+            transport_frame(Frame, Data),
             {keep_state, Data};
         {ok, {_Mod, _Fun, _Args}} ->
             Error = <<"MFA tuples not yet supported">>,
             Frame = rsocket_frame:new_error(ID, reject, Error),
-            ok = Mod:send_frame(Pid, Frame),
+            transport_frame(Frame, Data),
             {keep_state, Data};
         {ok, RRHandler} when is_function(RRHandler, 1) ->
             Map =
@@ -598,6 +558,9 @@ handle_cancel(StreamID, Data) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+transport_frame(Frame, #data{ transport_pid = Pid, transport_mod = Mod }) ->
+    ok = Mod:send_frame(Pid, Frame).
 
 register_stream(RSocket, StreamID) ->
     true = gproc:reg({n, l, {rsocket_stream, RSocket, StreamID}}).
