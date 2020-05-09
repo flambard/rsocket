@@ -4,12 +4,12 @@
 -export([
          call/2,
          call/3,
-         cast/2,
-         cast/3,
          close_connection/1,
          lease/3,
          lease/4,
-         metadata_push/2
+         metadata_push/2,
+         request_fnf/2,
+         request_fnf/3
         ]).
 
 %%%===================================================================
@@ -35,12 +35,6 @@ call(Connection, Request, Options) ->
             end
     end.
 
-cast(Connection, Message) ->
-    cast(Connection, Message, []).
-
-cast(Connection, Message, Options) ->
-    rsocket_connection:send_request_fnf(Connection, Message, Options).
-
 close_connection(Connection) ->
     rsocket_connection:close(Connection).
 
@@ -54,6 +48,11 @@ lease(Connection, TimeToLive, NumberOfRequests, Options) ->
 metadata_push(Connection, Metadata) ->
     rsocket_connection:send_metadata_push(Connection, Metadata).
 
+request_fnf(Connection, Message) ->
+    request_fnf(Connection, Message, []).
+
+request_fnf(Connection, Message, Options) ->
+    rsocket_connection:send_request_fnf(Connection, Message, Options).
 
 %%%===================================================================
 %%% Internal functions

@@ -121,7 +121,7 @@ test_client_not_honoring_lease(_Config) ->
             exit(connection_failed)
     end,
     Message = <<"Unsolicited Request">>,
-    {error, lease_expired} = rsocket:cast(RSocket, Message),
+    {error, lease_expired} = rsocket:request_fnf(RSocket, Message),
     receive
         {fnf, Ref, Message} ->
             exit(request_fnf_went_through_without_lease)
@@ -154,7 +154,7 @@ test_client_honoring_lease(_Config) ->
     end,
     receive after 500 -> ok end,
     Message = <<"Expected Request">>,
-    ok = rsocket:cast(RSocket, Message),
+    ok = rsocket:request_fnf(RSocket, Message),
     receive
         {fnf, Ref, Message} ->
             ok
@@ -187,7 +187,7 @@ test_client_uses_expired_lease(_Config) ->
     end,
     receive after 1000 -> ok end,
     Message = <<"Expected Request">>,
-    {error, lease_expired} = rsocket:cast(RSocket, Message),
+    {error, lease_expired} = rsocket:request_fnf(RSocket, Message),
     receive
         {fnf, Ref, Message} ->
             exit(request_fnf_went_through_with_expired_lease)

@@ -1,4 +1,4 @@
--module(rsocket_request_fnf_SUITE).
+-module(rsocket_rpc_SUITE).
 
 -compile(export_all).
 
@@ -33,13 +33,12 @@ groups() ->
 
 all() ->
     [
-     test_client_fnf,
-     test_client_fnf_with_metadata,
-     test_server_fnf
+     test_cast,
+     test_cast_with_metadata
     ].
 
 
-test_client_fnf(_Config) ->
+test_cast(_Config) ->
     Self = self(),
     Ref = make_ref(),
     FnfHandler = fun(#{request := Message}) ->
@@ -49,7 +48,7 @@ test_client_fnf(_Config) ->
     {ok, Listener} = rsocket_loopback:start_listener(Config),
     {ok, RSocket} = rsocket_loopback:connect(Listener),
     Message = <<"The Message">>,
-    ok = rsocket:request_fnf(RSocket, Message),
+    ok = rsocket_rpc:cast(RSocket, Message),
     receive
         {fnf, Ref, Message} ->
             ok = rsocket:close_connection(RSocket)
@@ -57,7 +56,7 @@ test_client_fnf(_Config) ->
             exit(did_not_handle_fnf_request)
     end.
 
-test_client_fnf_with_metadata(_Config) ->
+test_cast_with_metadata(_Config) ->
     Self = self(),
     Ref = make_ref(),
     FnfHandler = fun(#{request := Message, metadata := Metadata}) ->
@@ -68,7 +67,7 @@ test_client_fnf_with_metadata(_Config) ->
     {ok, RSocket} = rsocket_loopback:connect(Listener),
     Message = <<"The Message">>,
     Metadata = <<"About The Message">>,
-    ok = rsocket:request_fnf(RSocket, Message, [{metadata, Metadata}]),
+    ok = rsocket_rpc:cast(RSocket, Message, [{metadata, Metadata}]),
     receive
         {fnf, Ref, Message, Metadata} ->
             ok
@@ -76,28 +75,3 @@ test_client_fnf_with_metadata(_Config) ->
             exit(did_not_handle_fnf_request)
     end,
     ok = rsocket:close_connection(RSocket).
-
-test_server_fnf(_Config) ->
-    Self = self(),
-    Ref = make_ref(),
-    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
-    ServerConfig = #{ at_connect => AtConnectFun },
-    {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    FnfHandler = fun(#{ request := Message }) ->
-                         Self ! {fnf, Ref, Message}
-                 end,
-    ClientConfig = #{ handlers => #{ fire_and_forget => FnfHandler }},
-    {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
-    receive
-        {connected, Ref, ServerRSocket} ->
-            Message = <<"The Message">>,
-            ok = rsocket:request_fnf(ServerRSocket, Message),
-            receive
-                {fnf, Ref, Message} ->
-                    ok = rsocket:close_connection(ClientRSocket)
-            after 1000 ->
-                    exit(did_not_handle_fnf_request)
-            end
-    after 10000 ->
-            exit(connection_failed)
-    end.
