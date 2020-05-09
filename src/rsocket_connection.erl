@@ -13,6 +13,7 @@
          send_request_fnf/3,
          send_request_response/4,
          send_payload/4,
+         send_cancel/2,
          close/1
         ]).
 
@@ -104,6 +105,9 @@ send_request_response(Server, Request, Handler, Options) ->
 
 send_payload(Server, StreamID, Payload, Options) ->
     gen_statem:cast(Server, {send_payload, StreamID, Payload, Options}).
+
+send_cancel(Server, StreamID) ->
+    gen_statem:cast(Server, {send_cancel, StreamID}).
 
 close(Server) ->
     gen_statem:cast(Server, close_connection).
@@ -283,6 +287,8 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             handle_payload(Flags, StreamID, FrameData, Data);
         lease when StreamID =:= 0 ->
             handle_lease(Flags, FrameData, Data);
+        cancel when StreamID =/= 0 ->
+            handle_cancel(StreamID, Data);
         _ ->
             {stop, unexpected_message}
     end;
@@ -383,6 +389,19 @@ connected(cast, send_keepalive, Data) ->
     ok = Mod:send_frame(Pid, Frame),
     {ok, TRef} = timer:send_after(MaxLifetime, keepalive_timeout),
     {keep_state, Data#data{ keepalive_response_timer = TRef }};
+
+connected(cast, {send_cancel, StreamID}, Data) ->
+    #data{
+       transport_pid = Pid,
+       transport_mod = Mod
+      } = Data,
+    case find_stream(self(), StreamID) of
+        undefined -> ok;
+        Stream    -> exit(Stream, canceled)
+    end,
+    Frame = rsocket_frame:new_cancel(StreamID),
+    ok = Mod:send_frame(Pid, Frame),
+    {keep_state, Data};
 
 connected(info, keepalive_timeout, Data) ->
     %% TODO: Determine what the protocol is actually supposed to do
@@ -526,6 +545,7 @@ handle_request_response(?REQUEST_RESPONSE_FLAGS(M, _F), ID, FrameData, Data) ->
             Self = self(),
             proc_lib:spawn(
               fun() ->
+                      register_stream(Self, ID),
                       PayloadOptions =
                           case RRHandler(Map) of
                               {reply, Response}     -> [complete, next];
@@ -565,6 +585,13 @@ handle_lease(?LEASE_FLAGS(_M), FrameData, Data) ->
     ?LEASE(TimeToLive, NumberOfRequests, _Metadata) = FrameData,
     %% TODO: What to do with the (possibly included) metadata?
     ok = rsocket_lease:initiate(SendLease, TimeToLive, NumberOfRequests),
+    {keep_state, Data}.
+
+handle_cancel(StreamID, Data) ->
+    case find_stream(self(), StreamID) of
+        undefined -> ok;
+        Stream    -> exit(Stream, canceled)
+    end,
     {keep_state, Data}.
 
 

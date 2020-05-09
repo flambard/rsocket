@@ -2,6 +2,7 @@
 
 %% API
 -export([
+         cancel/2,
          close_connection/1,
          lease/3,
          lease/4,
@@ -15,6 +16,9 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+cancel(Connection, StreamID) ->
+    rsocket_connection:send_cancel(Connection, StreamID).
 
 close_connection(Connection) ->
     rsocket_connection:close(Connection).

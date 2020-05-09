@@ -5,6 +5,7 @@
 %% API
 -export([
          parse/1,
+         new_cancel/1,
          new_keepalive/1,
          new_metadata_push/1,
          new_setup/5,
@@ -43,6 +44,11 @@ frame_types() ->
       ?FRAME_TYPE_RESUME_OK        => resume_ok,
       ?FRAME_TYPE_EXT              => ext
      }.
+
+new_cancel(StreamID) ->
+    Flags = ?CANCEL_FLAGS,
+    C = ?CANCEL,
+    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_CANCEL, Flags, C).
 
 new_keepalive(Options) ->
     Respond = bool_to_bit(proplists:is_defined(respond, Options)),

@@ -244,3 +244,11 @@
           (Metadata)         /binary
         >>
        ).
+
+%%%
+%%% CANCEL
+%%%
+
+-define(CANCEL_FLAGS, <<0:10>>).
+
+-define(CANCEL, <<>>).

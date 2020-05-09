@@ -36,7 +36,8 @@ all() ->
      test_client_request_response,
      test_client_request_response_with_metadata,
      test_server_request_response,
-     test_concurrent_client_request_responses
+     test_concurrent_client_request_responses,
+     test_cancel_request_response
     ].
 
 test_client_request_response(_Config) ->
@@ -164,7 +165,9 @@ test_concurrent_client_request_responses(_Config) ->
     receive
         {response, Ref, {error, timeout}} ->
             exit(timeout_waiting_for_payload);
-        {response, Ref, {ok, Response1, _PayloadOptions1}} ->
+        {response, Ref, {ok, Response1, _}} ->
+            ok;
+        {response, Ref, {ok, Response2, _}} ->
             ok;
         {response, Ref, UnexpectedResponse1} ->
             exit({unexpected_response, UnexpectedResponse1})
@@ -172,9 +175,44 @@ test_concurrent_client_request_responses(_Config) ->
     receive
         {response, Ref, {error, timeout}} ->
             exit(timeout_waiting_for_payload);
-        {response, Ref, {ok, Response2, _PayloadOptions2}} ->
+        {response, Ref, {ok, Response1, _}} ->
+            ok;
+        {response, Ref, {ok, Response2, _}} ->
             ok;
         {response, Ref, UnexpectedResponse2} ->
             exit({unexpected_response, UnexpectedResponse2})
+    end,
+    ok = rsocket:close_connection(RSocket).
+
+test_cancel_request_response(_Config) ->
+    Request = <<"PING">>,
+    ExpectedResponse = <<"PONG">>,
+    ServerRRHandler = fun(_Request) ->
+                              receive
+                              after 1000 -> {reply, ExpectedResponse}
+                              end
+                      end,
+    ServerConfig = #{ handlers => #{ request_response => ServerRRHandler }},
+    {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
+    {ok, RSocket} = rsocket_loopback:connect(Listener),
+    Ref = make_ref(),
+    Self = self(),
+    ClientRRHandler = fun(Response) -> Self ! {response, Ref, Response} end,
+    case rsocket:request_response(RSocket, Request, ClientRRHandler) of
+        {error, Reason} ->
+            exit({call_returned_error, Reason});
+        {ok, StreamID} ->
+            Key = {n, l, {rsocket_stream, RSocket, StreamID}},
+            {Stream, _} = gproc:await(Key, 2000),
+            Monitor = monitor(process, Stream),
+            ok = rsocket:cancel(RSocket, StreamID),
+            receive
+                {'DOWN', Monitor, process, Stream, canceled} ->
+                    ok;
+                {response, Ref, Response} ->
+                    exit({request_not_canceled, Response})
+            after 5000 ->
+                    exit(no_response_and_no_down_message)
+            end
     end,
     ok = rsocket:close_connection(RSocket).
