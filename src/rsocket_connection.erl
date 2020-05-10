@@ -7,11 +7,13 @@
 -export([
          start_link/5,
          recv_frame/2,
+         send_error/4,
          send_keepalive/1,
          send_lease/4,
          send_metadata_push/2,
          send_request_fnf/3,
          send_request_response/4,
+         send_request_n/3,
          send_payload/4,
          send_cancel/2,
          close/1
@@ -87,6 +89,9 @@ start_link(Mode, Module, Transport, Handlers, Options) ->
 recv_frame(Server, Frame) ->
     gen_statem:cast(Server, {recv, Frame}).
 
+send_error(Server, StreamID, ErrorType, ErrorData) ->
+    gen_statem:cast(Server, {send_error, StreamID, ErrorType, ErrorData}).
+
 send_keepalive(Server) ->
     gen_statem:cast(Server, send_keepalive).
 
@@ -102,6 +107,9 @@ send_request_fnf(Server, Message, Options) ->
 
 send_request_response(Server, Request, Handler, Options) ->
     gen_statem:call(Server, {send_request_response, Request, Handler, Options}).
+
+send_request_n(Server, StreamID, N) ->
+    gen_statem:cast(Server, {send_request_n, StreamID, N}).
 
 send_payload(Server, StreamID, Payload, Options) ->
     gen_statem:cast(Server, {send_payload, StreamID, Payload, Options}).
@@ -288,6 +296,11 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             {stop, unexpected_message}
     end;
 
+connected(cast, {send_error, StreamID, ErrorType, ErrorData}, Data) ->
+    Frame = rsocket_frame:new_error(StreamID, ErrorType, ErrorData),
+    transport_frame(Frame, Data),
+    {keep_state, Data};
+
 connected(cast, {send_lease, Time, Count, Options}, Data) ->
     #data{
        use_leasing = UseLeasing,
@@ -357,6 +370,11 @@ connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
             NewData = Data#data{ next_stream_id = StreamID + 2 },
             {keep_state, NewData, [{reply, F, {ok, StreamID}}]}
     end;
+
+connected(cast, {send_request_n, StreamID, N}, Data) ->
+    Frame = rsocket_frame:new_request_n(StreamID, N),
+    transport_frame(Frame, Data),
+    {keep_state, Data};
 
 connected(cast, {send_payload, StreamID, Payload, Options}, Data) ->
     Frame = rsocket_frame:new_payload(StreamID, Payload, Options),
