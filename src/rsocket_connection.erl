@@ -46,8 +46,8 @@
          metadata_mime_type,
          data_mime_type,
          use_leasing = false,
-         send_lease,
-         recv_lease
+         send_lease_tracker,
+         recv_lease_tracker
         }).
 
 
@@ -157,8 +157,8 @@ init([initiate, Module, Transport, Handlers, Options]) ->
                 false -> Data0;
                 true  ->
                     Data0#data{
-                      send_lease = rsocket_lease:new(),
-                      recv_lease = rsocket_lease:new()
+                      send_lease_tracker = rsocket_lease_tracker:new(),
+                      recv_lease_tracker = rsocket_lease_tracker:new()
                      }
             end,
     {ok, setup_connection, Data1}.
@@ -247,7 +247,7 @@ connected(enter, _, Data) ->
 connected(cast, {recv, ReceivedFrame}, Data) ->
     #data{
        use_leasing = UseLeasing,
-       recv_lease = RecvLease
+       recv_lease_tracker = RecvLeaseTracker
       } = Data,
     {FrameType, StreamID, Flags, FrameData} =
         rsocket_frame:parse(ReceivedFrame),
@@ -259,7 +259,7 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
         request_fnf when StreamID =/= 0 andalso not UseLeasing ->
             handle_request_fnf(Flags, StreamID, FrameData, Data);
         request_fnf when StreamID =/= 0 andalso UseLeasing ->
-            case rsocket_lease:spend_1(RecvLease) of
+            case rsocket_lease_tracker:spend_1(RecvLeaseTracker) of
                 0 ->
                     Frame = rsocket_frame:new_error(StreamID, rejected),
                     transport_frame(Frame, Data),
@@ -270,7 +270,7 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
         request_response when StreamID =/= 0 andalso not UseLeasing ->
             handle_request_response(Flags, StreamID, FrameData, Data);
         request_response when StreamID =/= 0 andalso UseLeasing ->
-            case rsocket_lease:spend_1(RecvLease) of
+            case rsocket_lease_tracker:spend_1(RecvLeaseTracker) of
                 0 ->
                     Frame = rsocket_frame:new_error(StreamID, rejected),
                     transport_frame(Frame, Data),
@@ -288,17 +288,17 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             {stop, unexpected_message}
     end;
 
-connected(cast, {send_lease, TimeToLive, NumberOfRequests, Options}, Data) ->
+connected(cast, {send_lease, Time, Count, Options}, Data) ->
     #data{
        use_leasing = UseLeasing,
-       recv_lease = Lease
+       recv_lease_tracker = LeaseTracker
       } = Data,
     case UseLeasing of
         false -> ok;
         true  ->
-            L = rsocket_frame:new_lease(TimeToLive, NumberOfRequests, Options),
+            L = rsocket_frame:new_lease(Time, Count, Options),
             transport_frame(L, Data),
-            ok = rsocket_lease:initiate(Lease, TimeToLive, NumberOfRequests)
+            ok = rsocket_lease_tracker:start_lease(LeaseTracker, Time, Count)
     end,
     {keep_state, Data};
 
@@ -311,11 +311,11 @@ connected({call, From}, {send_request_fnf, Message, Options}, Data) ->
     #data{
        next_stream_id = StreamID,
        use_leasing = UseLeasing,
-       send_lease = Lease
+       send_lease_tracker = LeaseTracker
       } = Data,
     N = case UseLeasing of
             false -> 1;
-            true  -> rsocket_lease:spend_1(Lease)
+            true  -> rsocket_lease_tracker:spend_1(LeaseTracker)
         end,
     case N of
         0 ->
@@ -331,11 +331,11 @@ connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
     #data{
        next_stream_id = StreamID,
        use_leasing = UseLeasing,
-       send_lease = Lease
+       send_lease_tracker = LeaseTracker
       } = Data,
     N = case UseLeasing of
             false -> 1;
-            true  -> rsocket_lease:spend_1(Lease)
+            true  -> rsocket_lease_tracker:spend_1(LeaseTracker)
         end,
     case N of
         0 ->
@@ -422,8 +422,8 @@ handle_setup(?SETUP_FLAGS(M, _R, L), FrameData, Data) ->
                 0 -> Data0;
                 1 ->
                     Data0#data{
-                      send_lease = rsocket_lease:new(),
-                      recv_lease = rsocket_lease:new()
+                      send_lease_tracker = rsocket_lease_tracker:new(),
+                      recv_lease_tracker = rsocket_lease_tracker:new()
                      }
             end,
     {next_state, connected, Data1}.
@@ -540,11 +540,11 @@ handle_payload(?PAYLOAD_FLAGS(M, F, C, N), StreamID, FrameData, Data) ->
 handle_lease(?LEASE_FLAGS(_M), FrameData, Data) ->
     #data{
        use_leasing = true,
-       send_lease = SendLease
+       send_lease_tracker = LeaseTracker
       } = Data,
-    ?LEASE(TimeToLive, NumberOfRequests, _Metadata) = FrameData,
+    ?LEASE(Time, Count, _Metadata) = FrameData,
     %% TODO: What to do with the (possibly included) metadata?
-    ok = rsocket_lease:initiate(SendLease, TimeToLive, NumberOfRequests),
+    ok = rsocket_lease_tracker:start_lease(LeaseTracker, Time, Count),
     {keep_state, Data}.
 
 handle_cancel(StreamID, Data) ->
