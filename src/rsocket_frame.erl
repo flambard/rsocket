@@ -11,6 +11,7 @@
          new_setup/5,
          new_request_fnf/3,
          new_request_response/3,
+         new_request_n/2,
          new_payload/3,
          new_lease/3,
          new_error/2,
@@ -102,6 +103,11 @@ new_request_response(StreamID, Request, Options) ->
             M = ?METADATA(Size, Metadata, RR),
             ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, M)
     end.
+
+new_request_n(StreamID, N) ->
+    Flags = ?REQUEST_N_FLAGS,
+    R = ?REQUEST_N(N),
+    ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_N, Flags, R).
 
 new_payload(StreamID, Payload, Options) ->
     Follows = bool_to_bit(proplists:is_defined(follows, Options)),

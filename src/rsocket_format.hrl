@@ -169,6 +169,20 @@
 
 
 %%%
+%%% REQUEST_N
+%%%
+
+-define(REQUEST_N_FLAGS, <<0:10>>).
+
+-define(REQUEST_N(N),
+        <<
+          0   :1,
+          (N) :31
+        >>
+       ).
+
+
+%%%
 %%% PAYLOAD
 %%%
 
