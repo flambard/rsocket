@@ -71,7 +71,7 @@
 %%% API
 %%%===================================================================
 
--spec start_link(Mode :: accept | initiate,
+-spec start_link(Mode :: server | client,
                  Module :: atom(),
                  Transport :: pid(),
                  Handlers :: map(),
@@ -122,7 +122,7 @@ callback_mode() -> [state_functions, state_enter].
 
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([accept, Module, Transport, Handlers, Options]) ->
+init([server, Module, Transport, Handlers, Options]) ->
     #{ at_connect := AtConnect } = Options,
     Data = #data{
               at_connect = AtConnect,
@@ -133,7 +133,7 @@ init([accept, Module, Transport, Handlers, Options]) ->
              },
     {ok, awaiting_setup, Data};
 
-init([initiate, Module, Transport, Handlers, Options]) ->
+init([client, Module, Transport, Handlers, Options]) ->
     #{ at_connect := AtConnect,
        keepalive_interval := KeepaliveInterval,
        max_lifetime := MaxLifetime,

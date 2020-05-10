@@ -30,11 +30,11 @@ start_link() ->
 
 accept_connection(Module, Transport, Handlers, Options) ->
     supervisor:start_child(
-      ?SERVER, [accept, Module, Transport, Handlers, Options]).
+      ?SERVER, [server, Module, Transport, Handlers, Options]).
 
 initiate_connection(Module, Transport, Handlers, Options) ->
     supervisor:start_child(
-      ?SERVER, [initiate, Module, Transport, Handlers, Options]).
+      ?SERVER, [client, Module, Transport, Handlers, Options]).
 
 
 %%%===================================================================
