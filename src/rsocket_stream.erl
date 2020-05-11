@@ -4,8 +4,6 @@
 %% API
 -export([
          start_link/3,
-         recv_payload/3,
-         recv_request_n/2,
          send_cancel/1,
          send_error/3,
          send_payload/3,
@@ -38,12 +36,6 @@
 
 start_link(StreamID, Connection, Module) ->
     gen_server:start_link(?MODULE, [StreamID, Connection, Module], []).
-
-recv_payload(Stream, Payload, Options) ->
-    gen_server:cast(Stream, {recv_payload, Payload, Options}).
-
-recv_request_n(Stream, N) ->
-    gen_server:cast(Stream, {recv_request_n, N}).
 
 send_cancel(Stream) ->
     gen_server:cast(Stream, send_cancel).
@@ -78,16 +70,6 @@ handle_call(_Request, _From, State) ->
     {reply, Reply, State}.
 
 
-handle_cast({recv_payload, Payload, Options}, State) ->
-    #state{ module = Module, application_state = AppState } = State,
-    Module:handle_payload(Payload, Options, AppState),
-    {noreply, State};
-
-handle_cast({recv_request_n, N}, State) ->
-    #state{ module = Module, application_state = AppState } = State,
-    Module:handle_request_n(N, AppState),
-    {noreply, State};
-
 handle_cast(send_cancel, State) ->
     #state{ id = StreamID, connection = Connection } = State,
     rsocket_connection:send_cancel(Connection, StreamID),
@@ -109,7 +91,14 @@ handle_cast({send_request_n, N}, State) ->
     {noreply, State}.
 
 
-handle_info(_Info, State) ->
+handle_info({recv_payload, Payload, Options}, State) ->
+    #state{ module = Module, application_state = AppState } = State,
+    Module:handle_payload(Payload, Options, AppState),
+    {noreply, State};
+
+handle_info({recv_request_n, N}, State) ->
+    #state{ module = Module, application_state = AppState } = State,
+    Module:handle_request_n(N, AppState),
     {noreply, State}.
 
 
