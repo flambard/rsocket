@@ -10,7 +10,9 @@
          request_fnf/2,
          request_fnf/3,
          request_response/3,
-         request_response/4
+         request_response/4,
+         request_stream/3,
+         request_stream/4
         ]).
 
 %%%===================================================================
@@ -45,6 +47,12 @@ request_response(Connection, Request, Handler) ->
 request_response(Connection, Request, Handler, Options) ->
     rsocket_connection:send_request_response(
       Connection, Request, Handler, Options).
+
+request_stream(Connection, N, Request) ->
+    request_stream(Connection, N, Request, []).
+
+request_stream(Connection, N, Request, Options) ->
+    rsocket_connection:send_request_stream(Connection, N, Request, Options).
 
 
 %%%===================================================================

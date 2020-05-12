@@ -6,7 +6,7 @@
          payload/3
         ]).
 
--callback init(Args :: term()) -> {ok, State :: term()}.
+-callback init(Request :: map(), Args :: term()) -> {ok, State :: term()}.
 
 -callback handle_request_n(N :: pos_integer(), State :: term()) -> term().
 

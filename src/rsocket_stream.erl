@@ -25,6 +25,7 @@
         {
          id,
          connection,
+         request,
          module,
          application_state
         }).
@@ -34,8 +35,10 @@
 %%% API
 %%%===================================================================
 
-start_link(StreamID, Connection, Module) ->
-    gen_server:start_link(?MODULE, [StreamID, Connection, Module], []).
+start_link(StreamID, Request, Handler) ->
+    Name = {via, gproc, {n, l, {rsocket_stream, self(), StreamID}}},
+    gen_server:start_link(
+      Name, ?MODULE, [StreamID, self(), Request, Handler], []).
 
 send_cancel(Stream) ->
     gen_server:cast(Stream, send_cancel).
@@ -54,12 +57,12 @@ send_request_n(Stream, N) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([StreamID, Connection, Module]) ->
-    AppInitArgs = #{}, %% TODO: Initialize the application side correctly
-    {ok, AppState} = Module:init(AppInitArgs),
+init([StreamID, Connection, Request, {Module, AppInitArgs}]) ->
+    {ok, AppState} = Module:init(Request, AppInitArgs),
     {ok, #state{
             id = StreamID,
             connection = Connection,
+            request = Request,
             module = Module,
             application_state = AppState
            }}.

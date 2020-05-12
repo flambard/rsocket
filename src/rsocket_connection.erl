@@ -13,6 +13,7 @@
          send_metadata_push/2,
          send_request_fnf/3,
          send_request_response/4,
+         send_request_stream/4,
          send_request_n/3,
          send_payload/4,
          send_cancel/2,
@@ -107,6 +108,9 @@ send_request_fnf(Server, Message, Options) ->
 
 send_request_response(Server, Request, Handler, Options) ->
     gen_statem:call(Server, {send_request_response, Request, Handler, Options}).
+
+send_request_stream(Server, N, Request, Options) ->
+    gen_statem:call(Server, {send_request_stream, N, Request, Options}).
 
 send_request_n(Server, StreamID, N) ->
     gen_statem:cast(Server, {send_request_n, StreamID, N}).
@@ -286,6 +290,17 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
                 _ ->
                     handle_request_response(Flags, StreamID, FrameData, Data)
             end;
+        request_stream when StreamID =/= 0 andalso not UseLeasing ->
+            handle_request_stream(Flags, StreamID, FrameData, Data);
+        request_stream when StreamID =/= 0 andalso UseLeasing ->
+            case rsocket_lease_tracker:spend_1(RecvLeaseTracker) of
+                0 ->
+                    Frame = rsocket_frame:new_error(StreamID, rejected),
+                    transport_frame(Frame, Data),
+                    {keep_state, Data};
+                _ ->
+                    handle_request_stream(Flags, StreamID, FrameData, Data)
+            end;
         payload when StreamID =/= 0 ->
             handle_payload(Flags, StreamID, FrameData, Data);
         lease when StreamID =:= 0 ->
@@ -369,6 +384,37 @@ connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
             transport_frame(RR, Data),
             NewData = Data#data{ next_stream_id = StreamID + 2 },
             {keep_state, NewData, [{reply, F, {ok, StreamID}}]}
+    end;
+
+connected({call, F}, {send_request_stream, N, Request, Options}, Data) ->
+    #data{
+       stream_handlers = StreamHandlers,
+       next_stream_id = ID,
+       use_leasing = UseLeasing,
+       send_lease_tracker = LeaseTracker
+      } = Data,
+    Credit = case UseLeasing of
+                 false -> 1;
+                 true  -> rsocket_lease_tracker:spend_1(LeaseTracker)
+             end,
+    case {Credit, maps:find(stream_requester, StreamHandlers)} of
+        {0, _} ->
+            {keep_state, Data, [{reply, F, {error, lease_expired}}]};
+        {_, error} ->
+            Reply = {error, no_stream_requester_handler},
+            {keep_state, Data, [{reply, F, Reply}]};
+        {_, {ok, {_Module, _InitData} = Handler}} ->
+            Map = case proplists:lookup(metadata, Options) of
+                      none ->
+                          #{ request => Request };
+                      {metadata, Metadata} ->
+                          #{ request => Request, metadata => Metadata }
+                  end,
+            {ok, _Pid} = rsocket_stream:start_link(ID, Map, Handler),
+            RS = rsocket_frame:new_request_stream(ID, N, Request, Options),
+            transport_frame(RS, Data),
+            NewData = Data#data{ next_stream_id = ID + 2 },
+            {keep_state, NewData, [{reply, F, {ok, ID}}]}
     end;
 
 connected(cast, {send_request_n, StreamID, N}, Data) ->
@@ -531,6 +577,33 @@ handle_request_response(?REQUEST_RESPONSE_FLAGS(M, _F), ID, FrameData, Data) ->
                           end,
                       send_payload(Self, ID, Response, PayloadOptions)
               end),
+            {keep_state, Data}
+    end.
+
+handle_request_stream(?REQUEST_STREAM_FLAGS(M, _F), ID, FrameData, Data) ->
+    #data{ stream_handlers = StreamHandlers } = Data,
+    case maps:find(stream_responder, StreamHandlers) of
+        error ->
+            Error = <<"No request_stream handler">>,
+            Frame = rsocket_frame:new_error(ID, reject, Error),
+            transport_frame(Frame, Data),
+            {keep_state, Data};
+        {ok, {_Mod, _Fun, _Args}} ->
+            Error = <<"MFA tuples not yet supported">>,
+            Frame = rsocket_frame:new_error(ID, reject, Error),
+            transport_frame(Frame, Data),
+            {keep_state, Data};
+        {ok, {_Module, _InitData} = Handler} ->
+            ?REQUEST_STREAM(N, RequestData) = FrameData,
+            Map = case M of
+                      0 ->
+                          #{ request => RequestData };
+                      1 ->
+                          ?METADATA(_Size, Metadata, Request) = RequestData,
+                          #{ request => Request, metadata => Metadata }
+                  end,
+            {ok, Stream} = rsocket_stream:start_link(ID, Map, Handler),
+            Stream ! {recv_request_n, N},
             {keep_state, Data}
     end.
 

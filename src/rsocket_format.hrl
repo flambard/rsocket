@@ -167,6 +167,27 @@
         >>
        ).
 
+%%%
+%%% REQUEST_STREAM
+%%%
+
+-define(REQUEST_STREAM_FLAGS(MetadataPresent, Follows),
+        <<
+          0                 :1,
+          (MetadataPresent) :1,
+          (Follows)         :1,
+          0                 :7
+        >>
+       ).
+
+-define(REQUEST_STREAM(InitialRequestN, Request),
+        <<
+          0                 :1,
+          (InitialRequestN) :31,
+          (Request)         /binary
+        >>
+       ).
+
 
 %%%
 %%% REQUEST_N

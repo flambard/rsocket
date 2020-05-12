@@ -11,6 +11,7 @@
          new_setup/5,
          new_request_fnf/3,
          new_request_response/3,
+         new_request_stream/4,
          new_request_n/2,
          new_payload/3,
          new_lease/3,
@@ -102,6 +103,21 @@ new_request_response(StreamID, Request, Options) ->
             Size = byte_size(Metadata),
             M = ?METADATA(Size, Metadata, RR),
             ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_RESPONSE, Flags, M)
+    end.
+
+new_request_stream(StreamID, N, Request, Options) ->
+    Follows = bool_to_bit(proplists:is_defined(follows, Options)),
+    case proplists:lookup(metadata, Options) of
+        none ->
+            Flags = ?REQUEST_STREAM_FLAGS(0, Follows),
+            RS = ?REQUEST_STREAM(N, Request),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_STREAM, Flags, RS);
+        {metadata, Metadata} ->
+            Flags = ?REQUEST_STREAM_FLAGS(1, Follows),
+            RS = ?REQUEST_STREAM(N, Request),
+            Size = byte_size(Metadata),
+            M = ?METADATA(Size, Metadata, RS),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_STREAM, Flags, M)
     end.
 
 new_request_n(StreamID, N) ->

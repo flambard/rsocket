@@ -6,7 +6,7 @@
          request_n/2
         ]).
 
--callback init(Args :: term()) -> {ok, State :: term()}.
+-callback init(Request :: map(), Args :: term()) -> {ok, State :: term()}.
 
 -callback handle_payload(Payload :: binary(),
                          Options :: list(),
