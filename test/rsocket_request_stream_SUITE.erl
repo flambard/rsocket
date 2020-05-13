@@ -46,12 +46,18 @@ test_client_request_stream(_Config) ->
     ServerConfig = #{ at_connect => AtConnectFun,
                       handlers =>
                           #{ stream_responder =>
-                                 {rsocket_test_stream_responder, [Ref, Self]}
+                                 {
+                                  rsocket_passthrough_stream_responder,
+                                  [Ref, Self]
+                                 }
                            }},
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
     ClientConfig = #{ handlers =>
                           #{ stream_requester =>
-                                 {rsocket_test_stream_requester, [Ref, Self]}
+                                 {
+                                  rsocket_passthrough_stream_requester,
+                                  [Ref, Self]
+                                 }
                            }},
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     ServerRSocket =
@@ -68,19 +74,19 @@ test_client_request_stream(_Config) ->
     receive
         {responder, handle_request_n, Ref, N} -> ok
     end,
-    Payload1 = <<"ONE">>,
-    Payload2 = <<"TWO">>,
-    Payload3 = <<"THREE">>,
-    ok = rsocket_test_stream_responder:send_payload(Responder, Payload1, []),
-    ok = rsocket_test_stream_responder:send_payload(Responder, Payload2, []),
-    ok = rsocket_test_stream_responder:send_payload(Responder, Payload3, []),
+    P1 = <<"ONE">>,
+    P2 = <<"TWO">>,
+    P3 = <<"THREE">>,
+    ok = rsocket_passthrough_stream_responder:send_payload(Responder, P1, []),
+    ok = rsocket_passthrough_stream_responder:send_payload(Responder, P2, []),
+    ok = rsocket_passthrough_stream_responder:send_payload(Responder, P3, []),
     receive
-        {requester, handle_payload, Ref, Payload1, _} -> ok
+        {requester, handle_payload, Ref, P1, _} -> ok
     end,
     receive
-        {requester, handle_payload, Ref, Payload2, _} -> ok
+        {requester, handle_payload, Ref, P2, _} -> ok
     end,
     receive
-        {requester, handle_payload, Ref, Payload3, _} -> ok
+        {requester, handle_payload, Ref, P3, _} -> ok
     end,
     ok = rsocket:close_connection(ClientRSocket).

@@ -1,4 +1,4 @@
--module(rsocket_test_stream_responder).
+-module(rsocket_passthrough_stream_responder).
 -behaviour(rsocket_stream_responder).
 
 %% API
