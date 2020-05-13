@@ -3,6 +3,8 @@
 
 %% API
 -export([
+         send_payload/3,
+         send_error/3
         ]).
 
 %% rsocket_stream_requester callbacks
@@ -20,6 +22,17 @@
 
 %%%===================================================================
 %%% API
+%%%===================================================================
+
+send_payload(Stream, Payload, Options) ->
+    rsocket_stream_responder:payload(Stream, Payload, Options).
+
+send_error(Stream, ErrorType, ErrorData) ->
+    rsocket_stream_responder:error(Stream, ErrorType, ErrorData).
+
+
+%%%===================================================================
+%%% rsocket_stream_responder callbacks
 %%%===================================================================
 
 init(Request, [TestCaseRef, TestCasePid]) ->

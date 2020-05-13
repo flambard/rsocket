@@ -71,9 +71,9 @@ test_client_request_stream(_Config) ->
     Payload1 = <<"ONE">>,
     Payload2 = <<"TWO">>,
     Payload3 = <<"THREE">>,
-    ok = rsocket_stream_responder:payload(Responder, Payload1, []),
-    ok = rsocket_stream_responder:payload(Responder, Payload2, []),
-    ok = rsocket_stream_responder:payload(Responder, Payload3, []),
+    ok = rsocket_test_stream_responder:send_payload(Responder, Payload1, []),
+    ok = rsocket_test_stream_responder:send_payload(Responder, Payload2, []),
+    ok = rsocket_test_stream_responder:send_payload(Responder, Payload3, []),
     receive
         {requester, handle_payload, Ref, Payload1, _} -> ok
     end,
