@@ -33,12 +33,12 @@ groups() ->
 
 all() ->
     [
-     test_client_request_stream,
-     test_client_cancels_request_stream,
+     test_request_stream,
+     test_requester_cancels_stream,
      test_responder_sends_error
     ].
 
-test_client_request_stream(_Config) ->
+test_request_stream(_Config) ->
     Request = <<"PING">>,
     Ref = make_ref(),
     Self = self(),
@@ -94,7 +94,7 @@ test_client_request_stream(_Config) ->
     ok = rsocket:close_connection(ClientRSocket).
 
 
-test_client_cancels_request_stream(_Config) ->
+test_requester_cancels_stream(_Config) ->
     Request = <<"PING">>,
     Ref = make_ref(),
     Self = self(),
