@@ -4,6 +4,7 @@
 
 %% API
 -export([
+         error_code_names/0,
          parse/1,
          new_cancel/1,
          new_keepalive/1,
@@ -22,6 +23,20 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+error_code_names() ->
+    #{
+      16#001 => invalid_setup,
+      16#002 => unsupported_setup,
+      16#003 => rejected_setup,
+      16#004 => rejected_resume,
+      16#101 => connection_error,
+      16#102 => connection_close,
+      16#201 => application_error,
+      16#202 => rejected,
+      16#203 => canceled,
+      16#204 => invalid
+     }.
 
 parse(Frame) ->
     ?FRAME_HEADER(StreamID, FrameType, Flags, FramePayload) = Frame,

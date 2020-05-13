@@ -309,6 +309,8 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             handle_lease(Flags, FrameData, Data);
         cancel when StreamID =/= 0 ->
             handle_cancel(StreamID, Data);
+        error ->
+            handle_error(Flags, StreamID, FrameData, Data);
         _ ->
             {stop, unexpected_message}
     end;
@@ -648,6 +650,20 @@ handle_cancel(StreamID, Data) ->
     case find_stream(self(), StreamID) of
         undefined -> ok;
         Stream    -> exit(Stream, canceled)
+    end,
+    {keep_state, Data}.
+
+handle_error(?ERROR_FLAGS, 0, FrameData, _Data) ->
+    ?ERROR(ErrorCode, ErrorData) = FrameData,
+    ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
+    {stop, {rsocket_error, ErrorType, ErrorData}};
+
+handle_error(?ERROR_FLAGS, StreamID, FrameData, Data) ->
+    ?ERROR(ErrorCode, ErrorData) = FrameData,
+    ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
+    case find_stream(self(), StreamID) of
+        undefined -> ok;
+        Stream    -> exit(Stream, {rsocket_error, ErrorType, ErrorData})
     end,
     {keep_state, Data}.
 
