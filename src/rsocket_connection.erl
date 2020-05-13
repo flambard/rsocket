@@ -135,6 +135,7 @@ callback_mode() -> [state_functions, state_enter].
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
 init([server, Module, Transport, Handlers, Options]) ->
+    process_flag(trap_exit, true),
     #{ at_connect := AtConnect } = Options,
     Data = #data{
               at_connect = AtConnect,
@@ -146,6 +147,7 @@ init([server, Module, Transport, Handlers, Options]) ->
     {ok, awaiting_setup, Data};
 
 init([client, Module, Transport, Handlers, Options]) ->
+    process_flag(trap_exit, true),
     #{ at_connect := AtConnect,
        keepalive_interval := KeepaliveInterval,
        max_lifetime := MaxLifetime,
@@ -446,6 +448,10 @@ connected(cast, {send_cancel, StreamID}, Data) ->
 connected(info, keepalive_timeout, Data) ->
     %% TODO: Determine what the protocol is actually supposed to do
     %% when the other end does not respond to KEEPALIVEs
+    {keep_state, Data};
+
+connected(info, {'EXIT', _Stream, _Reason}, Data) ->
+    %% A stream has terminated
     {keep_state, Data};
 
 connected(cast, close_connection, Data) ->

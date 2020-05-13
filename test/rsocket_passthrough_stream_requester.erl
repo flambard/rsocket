@@ -3,6 +3,8 @@
 
 %% API
 -export([
+         send_cancel/1,
+         send_request_n/2
         ]).
 
 %% rsocket_stream_requester callbacks
@@ -20,6 +22,17 @@
 
 %%%===================================================================
 %%% API
+%%%===================================================================
+
+send_cancel(Stream) ->
+    rsocket_stream_requester:cancel(Stream).
+
+send_request_n(Stream, N) ->
+    rsocket_stream_requester:request_n(Stream, N).
+
+
+%%%===================================================================
+%%% rsocket_stream_requester callbacks
 %%%===================================================================
 
 init(Request, [TestCaseRef, TestCasePid]) ->
