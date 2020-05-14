@@ -30,14 +30,6 @@ init([]) ->
     SupFlags = #{strategy => one_for_all,
                  intensity => 0,
                  period => 1},
-    RSocketStreamSup = #{
-                         id => rsocket_stream_sup,
-                         start => {rsocket_stream_sup, start_link, []},
-                         restart => permanent,
-                         shutdown => 5000,
-                         type => supervisor,
-                         modules => [rsocket_stream_sup]
-                        },
     RSocketConnectionSup = #{
                              id => rsocket_connection_sup,
                              start => {rsocket_connection_sup, start_link, []},
@@ -46,5 +38,5 @@ init([]) ->
                              type => supervisor,
                              modules => [rsocket_connection_sup]
                             },
-    ChildSpecs = [RSocketStreamSup, RSocketConnectionSup],
+    ChildSpecs = [RSocketConnectionSup],
     {ok, {SupFlags, ChildSpecs}}.
