@@ -303,6 +303,8 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
                 _ ->
                     handle_request_stream(Flags, StreamID, FrameData, Data)
             end;
+        request_n when StreamID =/= 0 ->
+            handle_request_n(Flags, StreamID, FrameData, Data);
         payload when StreamID =/= 0 ->
             handle_payload(Flags, StreamID, FrameData, Data);
         lease when StreamID =:= 0 ->
@@ -414,7 +416,8 @@ connected({call, F}, {send_request_stream, N, Request, Options}, Data) ->
                       {metadata, Metadata} ->
                           #{ request => Request, metadata => Metadata }
                   end,
-            {ok, _Pid} = rsocket_stream:start_link(ID, Map, Handler),
+            {ok, _Pid} = rsocket_stream:start_link(
+                           ID, Map, Handler, [{recv_credits, N}]),
             RS = rsocket_frame:new_request_stream(ID, N, Request, Options),
             transport_frame(RS, Data),
             NewData = Data#data{ next_stream_id = ID + 2 },
@@ -610,10 +613,17 @@ handle_request_stream(?REQUEST_STREAM_FLAGS(M, _F), ID, FrameData, Data) ->
                           ?METADATA(_Size, Metadata, Request) = RequestData,
                           #{ request => Request, metadata => Metadata }
                   end,
-            {ok, Stream} = rsocket_stream:start_link(ID, Map, Handler),
+            {ok, Stream} = rsocket_stream:start_link(ID, Map, Handler, []),
             Stream ! {recv_request_n, N},
             {keep_state, Data}
     end.
+
+
+handle_request_n(?REQUEST_N_FLAGS, StreamID, FrameData, Data) ->
+    ?REQUEST_N(N) = FrameData,
+    Stream = find_stream(self(), StreamID),
+    Stream ! {recv_request_n, N},
+    {keep_state, Data}.
 
 
 handle_payload(?PAYLOAD_FLAGS(M, F, C, N), StreamID, FrameData, Data) ->
