@@ -86,7 +86,10 @@ handle_cast({send_error, ErrorType, ErrorData}, State) ->
 handle_cast({send_payload, Payload, Options}, State) ->
     #state{ id = StreamID, connection = Connection } = State,
     rsocket_connection:send_payload(Connection, StreamID, Payload, Options),
-    {noreply, State};
+    case proplists:is_defined(complete, Options) of
+        false -> {noreply, State};
+        true  -> {stop, completed, State}
+    end;
 
 handle_cast({send_request_n, N}, State) ->
     #state{ id = StreamID, connection = Connection } = State,
@@ -97,7 +100,10 @@ handle_cast({send_request_n, N}, State) ->
 handle_info({recv_payload, Payload, Options}, State) ->
     #state{ module = Module, application_state = AppState } = State,
     Module:handle_payload(Payload, Options, AppState),
-    {noreply, State};
+    case proplists:is_defined(complete, Options) of
+        false -> {noreply, State};
+        true  -> {stop, completed, State}
+    end;
 
 handle_info({recv_request_n, N}, State) ->
     #state{ module = Module, application_state = AppState } = State,
