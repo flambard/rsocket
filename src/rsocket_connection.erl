@@ -376,7 +376,7 @@ connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
             {keep_state, Data, [{reply, F, {error, lease_expired}}]};
         _ ->
             Self = self(),
-            proc_lib:spawn(
+            proc_lib:spawn_link(
               fun() ->
                       register_stream(Self, StreamID),
                       receive
@@ -523,7 +523,7 @@ handle_metadata_push(Metadata, Data) ->
             Frame = rsocket_frame:new_error(0, reject, Error),
             transport_frame(Frame, Data);
         {ok, MetadataPushHandler} when is_function(MetadataPushHandler, 1) ->
-            proc_lib:spawn(fun() -> MetadataPushHandler(Metadata) end)
+            proc_lib:spawn_link(fun() -> MetadataPushHandler(Metadata) end)
     end,
     {keep_state, Data}.
 
@@ -550,7 +550,11 @@ handle_request_fnf(?REQUEST_FNF_FLAGS(M, _F), StreamID, FrameData, Data) ->
                         ?METADATA(_Size, Metadata, Request) = FrameData,
                         #{ request => Request, metadata => Metadata }
                 end,
-            proc_lib:spawn(fun() -> FnfHandler(Map) end),
+            Self = self(),
+            proc_lib:spawn_link(fun() ->
+                                        register_stream(Self, StreamID),
+                                        FnfHandler(Map)
+                                end),
             {keep_state, Data}
     end.
 
@@ -578,7 +582,7 @@ handle_request_response(?REQUEST_RESPONSE_FLAGS(M, _F), ID, FrameData, Data) ->
                         #{ request => Request, metadata => Metadata }
                 end,
             Self = self(),
-            proc_lib:spawn(
+            proc_lib:spawn_link(
               fun() ->
                       register_stream(Self, ID),
                       PayloadOptions =
