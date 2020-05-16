@@ -30,6 +30,8 @@
          module,
          recv_credits = 0,
          send_credits = 0,
+         recv_state,
+         send_state,
          application_state
         }).
 
@@ -39,13 +41,16 @@
 %%%===================================================================
 
 start_link_stream_requester(StreamID, Request, Handler, N) ->
-    Options = [{recv_credits, N}],
+    Options = [{recv_credits, N},
+               {recv_state, open},
+               {send_state, completed}],
     Name = {via, gproc, {n, l, {rsocket_stream, self(), StreamID}}},
     gen_server:start_link(
       Name, ?MODULE, [StreamID, self(), Request, Handler, Options], []).
 
 start_link_stream_responder(StreamID, Request, Handler, N) ->
-    Options = [],
+    Options = [{recv_state, completed},
+               {send_state, open}],
     Name = {via, gproc, {n, l, {rsocket_stream, self(), StreamID}}},
     {ok, Pid} =
         gen_server:start_link(
@@ -63,7 +68,7 @@ send_payload(Stream, Payload, Options) ->
     gen_server:call(Stream, {send_payload, Payload, Options}).
 
 send_request_n(Stream, N) ->
-    gen_server:cast(Stream, {send_request_n, N}).
+    gen_server:call(Stream, {send_request_n, N}).
 
 
 %%%===================================================================
@@ -79,23 +84,45 @@ init([StreamID, Connection, Request, {Module, AppInitArgs}, Options]) ->
             module = Module,
             recv_credits = proplists:get_value(recv_credits, Options, 0),
             send_credits = proplists:get_value(send_credits, Options, 0),
+            recv_state = proplists:get_value(recv_state, Options),
+            send_state = proplists:get_value(send_state, Options),
             application_state = AppState
            }}.
 
 
+handle_call({send_request_n, _N}, _From, S = #state{ recv_state = completed }) ->
+    {reply, {error, stream_completed}, S};
+handle_call({send_request_n, N}, _From, State) ->
+    #state{
+       id = StreamID,
+       connection = Connection,
+       recv_credits = Credits
+      } = State,
+    rsocket_connection:send_request_n(Connection, StreamID, N),
+    NewState = State#state{ recv_credits = Credits + N },
+    {reply, ok, NewState};
+
 handle_call({send_payload, _P, _O}, _From, S = #state{ send_credits = 0 }) ->
     {reply, {error, no_credits}, S};
+handle_call({send_payload, _P, _O}, _F, S = #state{ send_state = completed }) ->
+    {reply, {error, stream_completed}, S};
 handle_call({send_payload, Payload, Options}, _From, State) ->
     #state{
        id = StreamID,
        connection = Connection,
-       send_credits = Credits
+       send_credits = Credits,
+       recv_state = RecvState
       } = State,
     rsocket_connection:send_payload(Connection, StreamID, Payload, Options),
     NewState = State#state{ send_credits = Credits - 1 },
     case proplists:is_defined(complete, Options) of
         false -> {reply, ok, NewState};
-        true  -> {stop, completed, ok, NewState}
+        true  ->
+            CompletedState = NewState#state{ send_state = completed },
+            case RecvState of
+                completed -> {stop, completed, ok, CompletedState};
+                open      -> {reply, ok, CompletedState}
+            end
     end.
 
 
@@ -107,25 +134,17 @@ handle_cast(send_cancel, State) ->
 handle_cast({send_error, ErrorType, ErrorData}, State) ->
     #state{ id = StreamID, connection = Connection } = State,
     rsocket_connection:send_error(Connection, StreamID, ErrorType, ErrorData),
-    {stop, {error, ErrorType, ErrorData}, State};
-
-handle_cast({send_request_n, N}, State) ->
-    #state{
-       id = StreamID,
-       connection = Connection,
-       recv_credits = Credits
-      } = State,
-    rsocket_connection:send_request_n(Connection, StreamID, N),
-    NewState = State#state{ recv_credits = Credits + N },
-    {noreply, NewState}.
+    {stop, {error, ErrorType, ErrorData}, State}.
 
 
+handle_info({recv_payload, _P, _O}, S = #state{ recv_state = completed }) ->
+    %% ignore
+    {noreply, S};
 handle_info({recv_payload, _P, _O}, S = #state{ recv_credits = 0 }) ->
     #state{ id = ID, connection = Connection } = S,
     Error = <<"REQUEST_N credits exceeded">>,
     rsocket_connection:send_error(Connection, ID, rejected, Error),
     {stop, {error, rejected, Error}, S};
-
 handle_info({recv_payload, Payload, Options}, State) ->
     #state{
        module = Module,
@@ -139,6 +158,9 @@ handle_info({recv_payload, Payload, Options}, State) ->
         true  -> {stop, completed, NewState}
     end;
 
+handle_info({recv_request_n, _N}, S = #state{ send_state = completed }) ->
+    %% ignored
+    {noreply, S};
 handle_info({recv_request_n, N}, State) ->
     #state{
        module = Module,
