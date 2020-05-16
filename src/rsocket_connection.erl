@@ -416,7 +416,8 @@ connected({call, F}, {send_request_stream, N, Request, Options}, Data) ->
                       {metadata, Metadata} ->
                           #{ request => Request, metadata => Metadata }
                   end,
-            {ok, _} = rsocket_stream:start_link_requester(ID, Map, Handler, N),
+            {ok, _} =
+                rsocket_stream:start_link_stream_requester(ID, Map, Handler, N),
             RS = rsocket_frame:new_request_stream(ID, N, Request, Options),
             transport_frame(RS, Data),
             NewData = Data#data{ next_stream_id = ID + 2 },
@@ -616,7 +617,8 @@ handle_request_stream(?REQUEST_STREAM_FLAGS(M, _F), ID, FrameData, Data) ->
                           ?METADATA(_Size, Metadata, Request) = RequestData,
                           #{ request => Request, metadata => Metadata }
                   end,
-            {ok, _} = rsocket_stream:start_link_responder(ID, Map, Handler, N),
+            {ok, _} =
+                rsocket_stream:start_link_stream_responder(ID, Map, Handler, N),
             {keep_state, Data}
     end.
 

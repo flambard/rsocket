@@ -3,8 +3,8 @@
 
 %% API
 -export([
-         start_link_requester/4,
-         start_link_responder/4,
+         start_link_stream_requester/4,
+         start_link_stream_responder/4,
          send_cancel/1,
          send_error/3,
          send_payload/3,
@@ -38,13 +38,13 @@
 %%% API
 %%%===================================================================
 
-start_link_requester(StreamID, Request, Handler, N) ->
+start_link_stream_requester(StreamID, Request, Handler, N) ->
     Options = [{recv_credits, N}],
     Name = {via, gproc, {n, l, {rsocket_stream, self(), StreamID}}},
     gen_server:start_link(
       Name, ?MODULE, [StreamID, self(), Request, Handler, Options], []).
 
-start_link_responder(StreamID, Request, Handler, N) ->
+start_link_stream_responder(StreamID, Request, Handler, N) ->
     Options = [],
     Name = {via, gproc, {n, l, {rsocket_stream, self(), StreamID}}},
     {ok, Pid} =
