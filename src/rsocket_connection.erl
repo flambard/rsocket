@@ -601,9 +601,12 @@ handle_request_stream(?REQUEST_STREAM_FLAGS(M, _F), ID, FrameData, Data) ->
 
 
 handle_request_n(?REQUEST_N_FLAGS, StreamID, FrameData, Data) ->
-    ?REQUEST_N(N) = FrameData,
-    Stream = rsocket_stream:find(self(), StreamID),
-    rsocket_stream:recv_request_n(Stream, N),
+    case rsocket_stream:find(self(), StreamID) of
+        undefined -> ok;
+        Stream    ->
+            ?REQUEST_N(N) = FrameData,
+            rsocket_stream:recv_request_n(Stream, N)
+    end,
     {keep_state, Data}.
 
 
@@ -650,11 +653,12 @@ handle_error(?ERROR_FLAGS, 0, FrameData, _Data) ->
     {stop, {rsocket_error, ErrorType, ErrorData}};
 
 handle_error(?ERROR_FLAGS, StreamID, FrameData, Data) ->
-    ?ERROR(ErrorCode, ErrorData) = FrameData,
-    ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
     case rsocket_stream:find(self(), StreamID) of
         undefined -> ok;
-        Stream    -> exit(Stream, {rsocket_error, ErrorType, ErrorData})
+        Stream    ->
+            ?ERROR(ErrorCode, ErrorData) = FrameData,
+            ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
+            exit(Stream, {rsocket_error, ErrorType, ErrorData})
     end,
     {keep_state, Data}.
 
