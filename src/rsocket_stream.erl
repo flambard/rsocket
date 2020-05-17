@@ -3,12 +3,18 @@
 
 %% API
 -export([
+         start_link_fire_and_forget/3,
+         start_link_rr_requester/2,
+         start_link_rr_responder/3,
          start_link_stream_requester/4,
          start_link_stream_responder/4,
+         recv_payload/3,
+         recv_request_n/2,
          send_cancel/1,
          send_error/3,
          send_payload/3,
-         send_request_n/2
+         send_request_n/2,
+         find/2
         ]).
 
 %% gen_server callbacks
@@ -40,6 +46,40 @@
 %%% API
 %%%===================================================================
 
+start_link_fire_and_forget(StreamID, Request, Handler) ->
+    Self = self(),
+    proc_lib:spawn_link(
+      fun() ->
+              register_stream(Self, StreamID),
+              Handler(Request)
+      end).
+
+start_link_rr_requester(StreamID, Handler) ->
+    Self = self(),
+    proc_lib:spawn_link(
+      fun() ->
+              register_stream(Self, StreamID),
+              receive
+                  {recv_payload, Payload, PayloadOptions} ->
+                      Handler({ok, Payload, PayloadOptions})
+              after 5000 ->
+                      Handler({error, timeout})
+              end
+      end).
+
+start_link_rr_responder(StreamID, Request, Handler) ->
+    Self = self(),
+    proc_lib:spawn_link(
+      fun() ->
+              register_stream(Self, StreamID),
+              Options =
+                  case Handler(Request) of
+                      {reply, Response}     -> [complete, next];
+                      {reply, Response, Os} -> [complete, next | Os]
+                  end,
+              rsocket_connection:send_payload(Self, StreamID, Response, Options)
+      end).
+
 start_link_stream_requester(StreamID, Request, Handler, N) ->
     Options = [{recv_credits, N},
                {recv_state, open},
@@ -55,8 +95,15 @@ start_link_stream_responder(StreamID, Request, Handler, N) ->
     {ok, Pid} =
         gen_server:start_link(
           Name, ?MODULE, [StreamID, self(), Request, Handler, Options], []),
-    Pid ! {recv_request_n, N},
+    recv_request_n(Pid, N),
     {ok, Pid}.
+
+
+recv_payload(Stream, Payload, Options) ->
+    Stream ! {recv_payload, Payload, Options}.
+
+recv_request_n(Stream, N) ->
+    Stream ! {recv_request_n, N}.
 
 send_cancel(Stream) ->
     gen_server:cast(Stream, send_cancel).
@@ -69,6 +116,9 @@ send_payload(Stream, Payload, Options) ->
 
 send_request_n(Stream, N) ->
     gen_server:call(Stream, {send_request_n, N}).
+
+find(RSocket, StreamID) ->
+    gproc:where({n, l, {rsocket_stream, RSocket, StreamID}}).
 
 
 %%%===================================================================
@@ -195,3 +245,6 @@ format_status(_Opt, Status) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+register_stream(RSocket, StreamID) ->
+    true = gproc:reg({n, l, {rsocket_stream, RSocket, StreamID}}).

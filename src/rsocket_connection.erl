@@ -375,17 +375,7 @@ connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
         0 ->
             {keep_state, Data, [{reply, F, {error, lease_expired}}]};
         _ ->
-            Self = self(),
-            proc_lib:spawn_link(
-              fun() ->
-                      register_stream(Self, StreamID),
-                      receive
-                          {recv_payload, Payload, PayloadOptions} ->
-                              Handler({ok, Payload, PayloadOptions})
-                      after 5000 ->
-                              Handler({error, timeout})
-                      end
-              end),
+            rsocket_stream:start_link_rr_requester(StreamID, Handler),
             RR = rsocket_frame:new_request_response(StreamID, Request, Opts),
             transport_frame(RR, Data),
             NewData = Data#data{ next_stream_id = StreamID + 2 },
@@ -442,7 +432,7 @@ connected(cast, send_keepalive, Data) ->
     {keep_state, Data#data{ keepalive_response_timer = TRef }};
 
 connected(cast, {send_cancel, StreamID}, Data) ->
-    case find_stream(self(), StreamID) of
+    case rsocket_stream:find(self(), StreamID) of
         undefined -> ok;
         Stream    -> exit(Stream, canceled)
     end,
@@ -541,7 +531,7 @@ handle_request_fnf(?REQUEST_FNF_FLAGS(M, _F), StreamID, FrameData, Data) ->
             Frame = rsocket_frame:new_error(StreamID, reject, Error),
             transport_frame(Frame, Data),
             {keep_state, Data};
-        {ok, FnfHandler} when is_function(FnfHandler, 1) ->
+        {ok, Handler} when is_function(Handler, 1) ->
             Map =
                 case M of
                     0 ->
@@ -550,11 +540,7 @@ handle_request_fnf(?REQUEST_FNF_FLAGS(M, _F), StreamID, FrameData, Data) ->
                         ?METADATA(_Size, Metadata, Request) = FrameData,
                         #{ request => Request, metadata => Metadata }
                 end,
-            Self = self(),
-            proc_lib:spawn_link(fun() ->
-                                        register_stream(Self, StreamID),
-                                        FnfHandler(Map)
-                                end),
+            rsocket_stream:start_link_fire_and_forget(StreamID, Map, Handler),
             {keep_state, Data}
     end.
 
@@ -581,19 +567,10 @@ handle_request_response(?REQUEST_RESPONSE_FLAGS(M, _F), ID, FrameData, Data) ->
                         ?METADATA(_Size, Metadata, Request) = FrameData,
                         #{ request => Request, metadata => Metadata }
                 end,
-            Self = self(),
-            proc_lib:spawn_link(
-              fun() ->
-                      register_stream(Self, ID),
-                      PayloadOptions =
-                          case RRHandler(Map) of
-                              {reply, Response}     -> [complete, next];
-                              {reply, Response, Os} -> [complete, next | Os]
-                          end,
-                      send_payload(Self, ID, Response, PayloadOptions)
-              end),
+            rsocket_stream:start_link_rr_responder(ID, Map, RRHandler),
             {keep_state, Data}
     end.
+
 
 handle_request_stream(?REQUEST_STREAM_FLAGS(M, _F), ID, FrameData, Data) ->
     #data{ stream_handlers = StreamHandlers } = Data,
@@ -625,13 +602,13 @@ handle_request_stream(?REQUEST_STREAM_FLAGS(M, _F), ID, FrameData, Data) ->
 
 handle_request_n(?REQUEST_N_FLAGS, StreamID, FrameData, Data) ->
     ?REQUEST_N(N) = FrameData,
-    Stream = find_stream(self(), StreamID),
-    Stream ! {recv_request_n, N},
+    Stream = rsocket_stream:find(self(), StreamID),
+    rsocket_stream:recv_request_n(Stream, N),
     {keep_state, Data}.
 
 
 handle_payload(?PAYLOAD_FLAGS(M, F, C, N), StreamID, FrameData, Data) ->
-    case find_stream(self(), StreamID) of
+    case rsocket_stream:find(self(), StreamID) of
         undefined -> ok;
         Stream    ->
             Flags = lists:append([
@@ -641,11 +618,11 @@ handle_payload(?PAYLOAD_FLAGS(M, F, C, N), StreamID, FrameData, Data) ->
                                  ]),
             case M of
                 0 ->
-                    Stream ! {recv_payload, FrameData, Flags};
+                    rsocket_stream:recv_payload(Stream, FrameData, Flags);
                 1 ->
                     ?METADATA(_Size, Metadata, Payload) = FrameData,
                     PayloadOptions = [{metadata, Metadata} | Flags],
-                    Stream ! {recv_payload, Payload, PayloadOptions}
+                    rsocket_stream:recv_payload(Stream, Payload, PayloadOptions)
             end
     end,
     {keep_state, Data}.
@@ -661,7 +638,7 @@ handle_lease(?LEASE_FLAGS(_M), FrameData, Data) ->
     {keep_state, Data}.
 
 handle_cancel(StreamID, Data) ->
-    case find_stream(self(), StreamID) of
+    case rsocket_stream:find(self(), StreamID) of
         undefined -> ok;
         Stream    -> exit(Stream, canceled)
     end,
@@ -675,7 +652,7 @@ handle_error(?ERROR_FLAGS, 0, FrameData, _Data) ->
 handle_error(?ERROR_FLAGS, StreamID, FrameData, Data) ->
     ?ERROR(ErrorCode, ErrorData) = FrameData,
     ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
-    case find_stream(self(), StreamID) of
+    case rsocket_stream:find(self(), StreamID) of
         undefined -> ok;
         Stream    -> exit(Stream, {rsocket_error, ErrorType, ErrorData})
     end,
@@ -688,12 +665,6 @@ handle_error(?ERROR_FLAGS, StreamID, FrameData, Data) ->
 
 transport_frame(Frame, #data{ transport_pid = Pid, transport_mod = Mod }) ->
     ok = Mod:send_frame(Pid, Frame).
-
-register_stream(RSocket, StreamID) ->
-    true = gproc:reg({n, l, {rsocket_stream, RSocket, StreamID}}).
-
-find_stream(RSocket, StreamID) ->
-    gproc:where({n, l, {rsocket_stream, RSocket, StreamID}}).
 
 bit_to_bool(0) -> false;
 bit_to_bool(1) -> true.
