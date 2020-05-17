@@ -73,8 +73,7 @@ test_request_stream(_Config) ->
     N = 3,
     Options = [],
     {ok, StreamID} = rsocket:request_stream(ClientRSocket, N, Request, Options),
-    ResponderName = {n, l, {rsocket_stream, ServerRSocket, StreamID}},
-    {Responder, _} = gproc:await(ResponderName),
+    Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
         {responder, handle_request_n, Ref, N} -> ok
     end,
@@ -129,10 +128,8 @@ test_responder_tries_to_send_too_much(_Config) ->
     N = 2,
     Options = [],
     {ok, StreamID} = rsocket:request_stream(ClientRSocket, N, Request, Options),
-    RequesterName = {n, l, {rsocket_stream, ClientRSocket, StreamID}},
-    Requester = gproc:where(RequesterName),
-    ResponderName = {n, l, {rsocket_stream, ServerRSocket, StreamID}},
-    {Responder, _} = gproc:await(ResponderName),
+    Requester = rsocket_stream:find(ClientRSocket, StreamID),
+    Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
         {responder, handle_request_n, Ref, N} -> ok
     end,
@@ -207,10 +204,8 @@ test_responder_completes_stream(_Config) ->
     N = 3,
     Options = [],
     {ok, StreamID} = rsocket:request_stream(ClientRSocket, N, Request, Options),
-    RequesterName = {n, l, {rsocket_stream, ClientRSocket, StreamID}},
-    Requester = gproc:where(RequesterName),
-    ResponderName = {n, l, {rsocket_stream, ServerRSocket, StreamID}},
-    {Responder, _} = gproc:await(ResponderName),
+    Requester = rsocket_stream:find(ClientRSocket, StreamID),
+    Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
         {responder, handle_request_n, Ref, N} -> ok
     end,
@@ -285,10 +280,8 @@ test_requester_cancels_stream(_Config) ->
     N = 3,
     Options = [],
     {ok, StreamID} = rsocket:request_stream(ClientRSocket, N, Request, Options),
-    RequesterName = {n, l, {rsocket_stream, ClientRSocket, StreamID}},
-    Requester = gproc:where(RequesterName),
-    ResponderName = {n, l, {rsocket_stream, ServerRSocket, StreamID}},
-    {Responder, _} = gproc:await(ResponderName),
+    Requester = rsocket_stream:find(ClientRSocket, StreamID),
+    Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
         {responder, handle_request_n, Ref, N} -> ok
     end,
@@ -363,10 +356,8 @@ test_responder_sends_error(_Config) ->
     N = 3,
     Options = [],
     {ok, StreamID} = rsocket:request_stream(ClientRSocket, N, Request, Options),
-    RequesterName = {n, l, {rsocket_stream, ClientRSocket, StreamID}},
-    Requester = gproc:where(RequesterName),
-    ResponderName = {n, l, {rsocket_stream, ServerRSocket, StreamID}},
-    {Responder, _} = gproc:await(ResponderName),
+    Requester = rsocket_stream:find(ClientRSocket, StreamID),
+    Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
         {responder, handle_request_n, Ref, N} -> ok
     end,

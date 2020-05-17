@@ -14,7 +14,8 @@
          send_error/3,
          send_payload/3,
          send_request_n/2,
-         find/2
+         find/2,
+         await/2
         ]).
 
 %% gen_server callbacks
@@ -120,6 +121,9 @@ send_request_n(Stream, N) ->
 find(RSocket, StreamID) ->
     gproc:where({n, l, {rsocket_stream, RSocket, StreamID}}).
 
+await(RSocket, StreamID) ->
+    {Stream, _} = gproc:await({n, l, {rsocket_stream, RSocket, StreamID}}),
+    Stream.
 
 %%%===================================================================
 %%% gen_server callbacks

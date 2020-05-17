@@ -202,8 +202,7 @@ test_cancel_request_response(_Config) ->
         {error, Reason} ->
             exit({call_returned_error, Reason});
         {ok, StreamID} ->
-            Key = {n, l, {rsocket_stream, RSocket, StreamID}},
-            {Stream, _} = gproc:await(Key, 2000),
+            Stream = rsocket_stream:await(RSocket, StreamID),
             Monitor = monitor(process, Stream),
             ok = rsocket:cancel(RSocket, StreamID),
             receive
