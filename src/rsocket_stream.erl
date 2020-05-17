@@ -6,6 +6,8 @@
          start_link_fire_and_forget/3,
          start_link_rr_requester/2,
          start_link_rr_responder/3,
+         start_link_channel_requester/4,
+         start_link_channel_responder/4,
          start_link_stream_requester/4,
          start_link_stream_responder/4,
          recv_payload/3,
@@ -80,6 +82,22 @@ start_link_rr_responder(StreamID, Request, Handler) ->
                   end,
               rsocket_connection:send_payload(Self, StreamID, Response, Options)
       end).
+
+start_link_channel_requester(StreamID, Request, Handler, N) ->
+    Options = [{recv_credits, N},
+               {recv_state, open},
+               {send_state, open}],
+    Name = {via, gproc, {n, l, {rsocket_stream, self(), StreamID}}},
+    gen_server:start_link(
+      Name, ?MODULE, [StreamID, self(), Request, Handler, Options], []).
+
+start_link_channel_responder(StreamID, Request, Handler, N) ->
+    Options = [{send_credits, N},
+               {recv_state, open},
+               {send_state, open}],
+    Name = {via, gproc, {n, l, {rsocket_stream, self(), StreamID}}},
+    gen_server:start_link(
+      Name, ?MODULE, [StreamID, self(), Request, Handler, Options], []).
 
 start_link_stream_requester(StreamID, Request, Handler, N) ->
     Options = [{recv_credits, N},

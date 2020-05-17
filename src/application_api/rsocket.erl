@@ -7,6 +7,8 @@
          lease/3,
          lease/4,
          metadata_push/2,
+         request_channel/3,
+         request_channel/4,
          request_fnf/2,
          request_fnf/3,
          request_response/3,
@@ -34,6 +36,12 @@ lease(Connection, TimeToLive, NumberOfRequests, Options) ->
 
 metadata_push(Connection, Metadata) ->
     rsocket_connection:send_metadata_push(Connection, Metadata).
+
+request_channel(Connection, N, Request) ->
+    request_channel(Connection, N, Request, []).
+
+request_channel(Connection, N, Request, Options) ->
+    rsocket_connection:send_request_channel(Connection, N, Request, Options).
 
 request_fnf(Connection, Message) ->
     request_fnf(Connection, Message, []).

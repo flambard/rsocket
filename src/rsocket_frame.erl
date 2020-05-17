@@ -10,6 +10,7 @@
          new_keepalive/1,
          new_metadata_push/1,
          new_setup/5,
+         new_request_channel/4,
          new_request_fnf/3,
          new_request_response/3,
          new_request_stream/4,
@@ -89,6 +90,22 @@ new_setup(TimeBetweenKeepaliveFrames, MaxLifetime,
                    byte_size(DataMimeType), DataMimeType,
                    Payload),
     ?FRAME_HEADER(0, ?FRAME_TYPE_SETUP, Flags, Setup).
+
+new_request_channel(StreamID, N, Request, Options) ->
+    Follows = bool_to_bit(proplists:is_defined(follows, Options)),
+    Complete = bool_to_bit(proplists:is_defined(complete, Options)),
+    case proplists:lookup(metadata, Options) of
+        none ->
+            Flags = ?REQUEST_CHANNEL_FLAGS(0, Follows, Complete),
+            RC = ?REQUEST_CHANNEL(N, Request),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_CHANNEL, Flags, RC);
+        {metadata, Metadata} ->
+            Flags = ?REQUEST_CHANNEL_FLAGS(1, Follows, Complete),
+            RC = ?REQUEST_CHANNEL(N, Request),
+            Size = byte_size(Metadata),
+            M = ?METADATA(Size, Metadata, RC),
+            ?FRAME_HEADER(StreamID, ?FRAME_TYPE_REQUEST_CHANNEL, Flags, M)
+    end.
 
 new_request_fnf(StreamID, Message, Options) ->
     Follows = bool_to_bit(proplists:is_defined(follows, Options)),

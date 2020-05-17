@@ -11,6 +11,7 @@
          send_keepalive/1,
          send_lease/4,
          send_metadata_push/2,
+         send_request_channel/4,
          send_request_fnf/3,
          send_request_response/4,
          send_request_stream/4,
@@ -102,6 +103,9 @@ send_lease(Server, TimeToLive, NumberOfRequests, Options) ->
 
 send_metadata_push(Server, Metadata) ->
     gen_statem:cast(Server, {send_metadata_push, Metadata}).
+
+send_request_channel(Server, N, Request, Options) ->
+    gen_statem:call(Server, {send_request_channel, N, Request, Options}).
 
 send_request_fnf(Server, Message, Options) ->
     gen_statem:call(Server, {send_request_fnf, Message, Options}).
@@ -270,6 +274,17 @@ connected(cast, {recv, ReceivedFrame}, Data) ->
             handle_keepalive(Flags, Data);
         metadata_push when StreamID =:= 0 ->
             handle_metadata_push(FrameData, Data);
+        request_channel when StreamID =/= 0 andalso not UseLeasing ->
+            handle_request_channel(Flags, StreamID, FrameData, Data);
+        request_channel when StreamID =/= 0 andalso UseLeasing ->
+            case rsocket_lease_tracker:spend_1(RecvLeaseTracker) of
+                0 ->
+                    Frame = rsocket_frame:new_error(StreamID, rejected),
+                    transport_frame(Frame, Data),
+                    {keep_state, Data};
+                _ ->
+                    handle_request_channel(Flags, StreamID, FrameData, Data)
+            end;
         request_fnf when StreamID =/= 0 andalso not UseLeasing ->
             handle_request_fnf(Flags, StreamID, FrameData, Data);
         request_fnf when StreamID =/= 0 andalso UseLeasing ->
@@ -340,6 +355,38 @@ connected(cast, {send_metadata_push, Metadata}, Data) ->
     Frame = rsocket_frame:new_metadata_push(Metadata),
     transport_frame(Frame, Data),
     {keep_state, Data};
+
+connected({call, From}, {send_request_channel, N, Request, Options}, Data) ->
+    #data{
+       stream_handlers = StreamHandlers,
+       next_stream_id = ID,
+       use_leasing = UseLeasing,
+       send_lease_tracker = LeaseTracker
+      } = Data,
+    Credit = case UseLeasing of
+                 false -> 1;
+                 true  -> rsocket_lease_tracker:spend_1(LeaseTracker)
+             end,
+    case {Credit, maps:find(channel, StreamHandlers)} of
+        {0, _} ->
+            {keep_state, Data, [{reply, From, {error, lease_expired}}]};
+        {_, error} ->
+            Reply = {error, no_channel_handler},
+            {keep_state, Data, [{reply, From, Reply}]};
+        {_, {ok, {_Module, _InitData} = Handler}} ->
+            Map = case proplists:lookup(metadata, Options) of
+                      none ->
+                          #{ request => Request };
+                      {metadata, Metadata} ->
+                          #{ request => Request, metadata => Metadata }
+                  end,
+            {ok, _} =
+                rsocket_stream:start_link_channel_requester(ID, Map, Handler, N),
+            RS = rsocket_frame:new_request_channel(ID, N, Request, Options),
+            transport_frame(RS, Data),
+            NewData = Data#data{ next_stream_id = ID + 2 },
+            {keep_state, NewData, [{reply, From, {ok, ID}}]}
+    end;
 
 connected({call, From}, {send_request_fnf, Message, Options}, Data) ->
     #data{
@@ -516,6 +563,36 @@ handle_metadata_push(Metadata, Data) ->
             proc_lib:spawn_link(fun() -> MetadataPushHandler(Metadata) end)
     end,
     {keep_state, Data}.
+
+
+handle_request_channel(Flags, ID, FrameData, Data) ->
+    ?REQUEST_CHANNEL_FLAGS(M, _F, _C) = Flags,
+    #data{ stream_handlers = StreamHandlers } = Data,
+    case maps:find(channel, StreamHandlers) of
+        error ->
+            Error = <<"No channel handler">>,
+            Frame = rsocket_frame:new_error(ID, reject, Error),
+            transport_frame(Frame, Data),
+            {keep_state, Data};
+        {ok, {_Mod, _Fun, _Args}} ->
+            Error = <<"MFA tuples not yet supported">>,
+            Frame = rsocket_frame:new_error(ID, reject, Error),
+            transport_frame(Frame, Data),
+            {keep_state, Data};
+        {ok, {_Module, _InitData} = Handler} ->
+            ?REQUEST_CHANNEL(N, RequestData) = FrameData,
+            Map = case M of
+                      0 ->
+                          #{ request => RequestData };
+                      1 ->
+                          ?METADATA(_Size, Metadata, Request) = RequestData,
+                          #{ request => Request, metadata => Metadata }
+                  end,
+            {ok, Stream} =
+                rsocket_stream:start_link_channel_responder(ID, Map, Handler, N),
+            rsocket_stream:send_request_n(Stream, N),
+            {keep_state, Data}
+    end.
 
 
 handle_request_fnf(?REQUEST_FNF_FLAGS(M, _F), StreamID, FrameData, Data) ->

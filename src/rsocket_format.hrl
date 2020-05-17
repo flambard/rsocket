@@ -127,6 +127,28 @@
         >>
        ).
 
+%%%
+%%% REQUEST_CHANNEL
+%%%
+
+-define(REQUEST_CHANNEL_FLAGS(MetadataPresent, Follows, Complete),
+        <<
+          0                 :1,
+          (MetadataPresent) :1,
+          (Follows)         :1,
+          (Complete)        :1,
+          0                 :6
+        >>
+       ).
+
+-define(REQUEST_CHANNEL(InitialRequestN, Request),
+        <<
+          0                 :1,
+          (InitialRequestN) :31,
+          (Request)         /binary
+        >>
+       ).
+
 
 %%%
 %%% REQUEST_FNF
