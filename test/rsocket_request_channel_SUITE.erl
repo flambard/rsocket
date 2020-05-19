@@ -77,6 +77,10 @@ test_request_channel(_Config) ->
     ok = rsocket_passthrough_channel:send_payload(Responder, P2, []),
     ok = rsocket_passthrough_channel:send_payload(Requester, P3, []),
     ok = rsocket_passthrough_channel:send_payload(Responder, P3, []),
+    {error, no_credits} =
+        rsocket_passthrough_channel:send_payload(Requester, P3, []),
+    {error, no_credits} =
+        rsocket_passthrough_channel:send_payload(Responder, P3, []),
     receive
         {channel, Responder, handle_payload, Ref, P1, _} -> ok
     end,
