@@ -34,6 +34,7 @@ groups() ->
 all() ->
     [
      test_request_channel,
+     test_completed_streams,
      test_requester_request_n,
      test_responder_request_n,
      test_requester_cancels,
@@ -102,6 +103,70 @@ test_request_channel(_Config) ->
     end,
     receive
         {channel, Requester, handle_payload, Ref, P3, _} -> ok
+    end,
+    ok = rsocket:close_connection(ClientRSocket).
+
+test_completed_streams(_Config) ->
+    Request = <<"PING">>,
+    Ref = make_ref(),
+    Self = self(),
+    AtConnectFun = fun(RSocket) ->
+                           Self ! {connected, Ref, RSocket}
+                   end,
+    ServerConfig = #{ at_connect => AtConnectFun,
+                      handlers =>
+                          #{ channel =>
+                                 { rsocket_passthrough_channel, [Ref, Self] }
+                           }},
+    {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
+    ClientConfig = #{ handlers =>
+                          #{ channel =>
+                                 { rsocket_passthrough_channel, [Ref, Self] }
+                           }},
+    {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
+    ServerRSocket =
+        receive
+            {connected, Ref, RSocket} -> RSocket
+        after 10000 ->
+                exit(connection_failed)
+        end,
+    N = 2,
+    Options = [],
+    {ok, StreamID} = rsocket:request_channel(ClientRSocket, N, Request, Options),
+    Requester = rsocket_stream:find(ClientRSocket, StreamID),
+    Responder = rsocket_stream:await(ServerRSocket, StreamID),
+    RequesterMonitor = erlang:monitor(process, Requester),
+    ResponderMonitor = erlang:monitor(process, Responder),
+    receive
+        {channel, Requester, handle_request_n, Ref, N} -> ok
+    end,
+    P1 = <<"ONE">>,
+    P2 = <<"TWO">>,
+    ok = rsocket_passthrough_channel:send_payload(Requester, P1, [complete]),
+    ok = rsocket_passthrough_channel:send_payload(Responder, P1, []),
+    {error, stream_completed} =
+        rsocket_passthrough_channel:send_payload(Requester, P2, []),
+    ok = rsocket_passthrough_channel:send_payload(Responder, P2, [complete]),
+    receive
+        {channel, Responder, handle_payload, Ref, P1, _} -> ok
+    end,
+    receive
+        {channel, Requester, handle_payload, Ref, P1, _} -> ok
+    end,
+    receive
+        {channel, Requester, handle_payload, Ref, P2, _} -> ok
+    end,
+    receive
+        {'DOWN', RequesterMonitor, process, Requester, _} ->
+            ok
+    after 100 ->
+            exit(requester_did_not_terminate)
+    end,
+    receive
+        {'DOWN', ResponderMonitor, process, Responder, _} ->
+            ok
+    after 100 ->
+            exit(responder_did_not_terminate)
     end,
     ok = rsocket:close_connection(ClientRSocket).
 

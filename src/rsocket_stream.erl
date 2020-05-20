@@ -221,13 +221,19 @@ handle_info({recv_payload, Payload, Options}, State) ->
     #state{
        module = Module,
        application_state = AppState,
-       recv_credits = Credits
+       recv_credits = Credits,
+       send_state = SendState
       } = State,
     Module:handle_payload(Payload, Options, AppState),
     NewState = State#state{ recv_credits = Credits - 1 },
     case proplists:is_defined(complete, Options) of
         false -> {noreply, NewState};
-        true  -> {stop, completed, NewState}
+        true  ->
+            CompletedState = NewState#state{ recv_state = completed },
+            case SendState of
+                completed -> {stop, completed, CompletedState};
+                open      -> {noreply, CompletedState}
+            end
     end;
 
 handle_info({recv_request_n, _N}, S = #state{ send_state = completed }) ->
