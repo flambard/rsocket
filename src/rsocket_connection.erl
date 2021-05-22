@@ -238,12 +238,11 @@ awaiting_setup(enter, _, Data) ->
     {keep_state, Data};
 
 awaiting_setup(cast, {recv, ReceivedFrame}, Data) ->
-    {FrameType, StreamID, Flags, FrameData} =
-        rsocket_frame:parse(ReceivedFrame),
-    case FrameType of
-        setup when StreamID =:= 0 ->
+    case rsocket_frame:parse(ReceivedFrame) of
+        {setup, 0, Flags, FrameData} ->
             handle_setup(Flags, FrameData, Data);
-        _ ->
+
+        {_FrameType, _StreamID, _Flags, _FrameData} ->
             Frame = rsocket_frame:new_error(0, invalid_setup),
             transport_frame(Frame, Data),
             {stop, invalid_setup}
@@ -262,75 +261,9 @@ connected(enter, _, Data) ->
     AtConnect(self()),
     {keep_state, Data};
 
-connected(cast, {recv, ReceivedFrame}, Data) ->
-    #data{
-       use_leasing = UseLeasing,
-       recv_lease_tracker = RecvLeaseTracker
-      } = Data,
-    {FrameType, StreamID, Flags, FrameData} =
-        rsocket_frame:parse(ReceivedFrame),
-    case FrameType of
-        keepalive ->
-            handle_keepalive(Flags, Data);
-        metadata_push when StreamID =:= 0 ->
-            handle_metadata_push(FrameData, Data);
-        request_channel when StreamID =/= 0 andalso not UseLeasing ->
-            handle_request_channel(Flags, StreamID, FrameData, Data);
-        request_channel when StreamID =/= 0 andalso UseLeasing ->
-            case rsocket_lease_tracker:spend_1(RecvLeaseTracker) of
-                0 ->
-                    Frame = rsocket_frame:new_error(StreamID, rejected),
-                    transport_frame(Frame, Data),
-                    {keep_state, Data};
-                _ ->
-                    handle_request_channel(Flags, StreamID, FrameData, Data)
-            end;
-        request_fnf when StreamID =/= 0 andalso not UseLeasing ->
-            handle_request_fnf(Flags, StreamID, FrameData, Data);
-        request_fnf when StreamID =/= 0 andalso UseLeasing ->
-            case rsocket_lease_tracker:spend_1(RecvLeaseTracker) of
-                0 ->
-                    Frame = rsocket_frame:new_error(StreamID, rejected),
-                    transport_frame(Frame, Data),
-                    {keep_state, Data};
-                _ ->
-                    handle_request_fnf(Flags, StreamID, FrameData, Data)
-            end;
-        request_response when StreamID =/= 0 andalso not UseLeasing ->
-            handle_request_response(Flags, StreamID, FrameData, Data);
-        request_response when StreamID =/= 0 andalso UseLeasing ->
-            case rsocket_lease_tracker:spend_1(RecvLeaseTracker) of
-                0 ->
-                    Frame = rsocket_frame:new_error(StreamID, rejected),
-                    transport_frame(Frame, Data),
-                    {keep_state, Data};
-                _ ->
-                    handle_request_response(Flags, StreamID, FrameData, Data)
-            end;
-        request_stream when StreamID =/= 0 andalso not UseLeasing ->
-            handle_request_stream(Flags, StreamID, FrameData, Data);
-        request_stream when StreamID =/= 0 andalso UseLeasing ->
-            case rsocket_lease_tracker:spend_1(RecvLeaseTracker) of
-                0 ->
-                    Frame = rsocket_frame:new_error(StreamID, rejected),
-                    transport_frame(Frame, Data),
-                    {keep_state, Data};
-                _ ->
-                    handle_request_stream(Flags, StreamID, FrameData, Data)
-            end;
-        request_n when StreamID =/= 0 ->
-            handle_request_n(Flags, StreamID, FrameData, Data);
-        payload when StreamID =/= 0 ->
-            handle_payload(Flags, StreamID, FrameData, Data);
-        lease when StreamID =:= 0 ->
-            handle_lease(Flags, FrameData, Data);
-        cancel when StreamID =/= 0 ->
-            handle_cancel(StreamID, Data);
-        error ->
-            handle_error(Flags, StreamID, FrameData, Data);
-        _ ->
-            {stop, unexpected_message}
-    end;
+connected(cast, {recv, Frame}, Data) ->
+    {FrameType, StreamID, Flags, FrameData} = rsocket_frame:parse(Frame),
+    handle_frame(FrameType, StreamID, Flags, FrameData, Data);
 
 connected(cast, {send_error, StreamID, ErrorType, ErrorData}, Data) ->
     Frame = rsocket_frame:new_error(StreamID, ErrorType, ErrorData),
@@ -541,18 +474,17 @@ handle_setup(?SETUP_FLAGS(M, _R, L), FrameData, Data) ->
     {next_state, connected, Data1}.
 
 
-handle_keepalive(?KEEPALIVE_FLAGS(1), Data) ->
+handle_frame(keepalive, _StreamID, ?KEEPALIVE_FLAGS(1), _FrameData, Data) ->
     Frame = rsocket_frame:new_keepalive([]),
     transport_frame(Frame, Data),
     {keep_state, Data};
 
-handle_keepalive(?KEEPALIVE_FLAGS(0), Data) ->
+handle_frame(keepalive, _StreamID, ?KEEPALIVE_FLAGS(0), _FrameData, Data) ->
     #data{ keepalive_response_timer = TRef } = Data,
     {ok, cancel} = timer:cancel(TRef),
-    {keep_state, Data}.
+    {keep_state, Data};
 
-
-handle_metadata_push(Metadata, Data) ->
+handle_frame(metadata_push, 0, _Flags, Metadata, Data) ->
     #data{ stream_handlers = StreamHandlers } = Data,
     case maps:find(metadata_push, StreamHandlers) of
         error ->
@@ -561,6 +493,107 @@ handle_metadata_push(Metadata, Data) ->
             transport_frame(Frame, Data);
         {ok, MetadataPushHandler} when is_function(MetadataPushHandler, 1) ->
             proc_lib:spawn_link(fun() -> MetadataPushHandler(Metadata) end)
+    end,
+    {keep_state, Data};
+
+handle_frame(request_channel, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
+    case spend_leasing(Data) of
+        0 ->
+            Frame = rsocket_frame:new_error(StreamID, rejected),
+            transport_frame(Frame, Data),
+            {keep_state, Data};
+        _ ->
+            handle_request_channel(Flags, StreamID, FrameData, Data)
+    end;
+
+handle_frame(request_fnf, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
+    case spend_leasing(Data) of
+        0 ->
+            Frame = rsocket_frame:new_error(StreamID, rejected),
+            transport_frame(Frame, Data),
+            {keep_state, Data};
+        _ ->
+            handle_request_fnf(Flags, StreamID, FrameData, Data)
+    end;
+
+handle_frame(request_response, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
+    case spend_leasing(Data) of
+        0 ->
+            Frame = rsocket_frame:new_error(StreamID, rejected),
+            transport_frame(Frame, Data),
+            {keep_state, Data};
+        _ ->
+            handle_request_response(Flags, StreamID, FrameData, Data)
+    end;
+
+handle_frame(request_stream, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
+    case spend_leasing(Data) of
+        0 ->
+            Frame = rsocket_frame:new_error(StreamID, rejected),
+            transport_frame(Frame, Data),
+            {keep_state, Data};
+        _ ->
+            handle_request_stream(Flags, StreamID, FrameData, Data)
+    end;
+
+handle_frame(request_n, StreamID, ?REQUEST_N_FLAGS, FrameData, Data) when StreamID > 0 ->
+    case rsocket_stream:find(self(), StreamID) of
+        undefined -> ok;
+        Stream    ->
+            ?REQUEST_N(N) = FrameData,
+            rsocket_stream:recv_request_n(Stream, N)
+    end,
+    {keep_state, Data};
+
+handle_frame(payload, StreamID, ?PAYLOAD_FLAGS(M, F, C, N), FrameData, Data) when StreamID > 0 ->
+    case rsocket_stream:find(self(), StreamID) of
+        undefined -> ok;
+        Stream    ->
+            Flags = lists:append([
+                                  [follows  || F =:= 1],
+                                  [complete || C =:= 1],
+                                  [next     || N =:= 1]
+                                 ]),
+            case M of
+                0 ->
+                    rsocket_stream:recv_payload(Stream, FrameData, Flags);
+                1 ->
+                    ?METADATA(_Size, Metadata, Payload) = FrameData,
+                    PayloadOptions = [{metadata, Metadata} | Flags],
+                    rsocket_stream:recv_payload(Stream, Payload, PayloadOptions)
+            end
+    end,
+    {keep_state, Data};
+
+handle_frame(lease, 0, ?LEASE_FLAGS(_M), FrameData, Data) ->
+    #data{
+       use_leasing = true,
+       send_lease_tracker = LeaseTracker
+      } = Data,
+    ?LEASE(Time, Count, _Metadata) = FrameData,
+    %% TODO: What to do with the (possibly included) metadata?
+    ok = rsocket_lease_tracker:start_lease(LeaseTracker, Time, Count),
+    {keep_state, Data};
+
+handle_frame(cancel, StreamID, _Flags, _FrameData, Data) when StreamID > 0 ->
+    case rsocket_stream:find(self(), StreamID) of
+        undefined -> ok;
+        Stream    -> exit(Stream, canceled)
+    end,
+    {keep_state, Data};
+
+handle_frame(error, 0, ?ERROR_FLAGS, FrameData, _Data) ->
+    ?ERROR(ErrorCode, ErrorData) = FrameData,
+    ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
+    {stop, {rsocket_error, ErrorType, ErrorData}};
+
+handle_frame(error, StreamID, ?ERROR_FLAGS, FrameData, Data) ->
+    case rsocket_stream:find(self(), StreamID) of
+        undefined -> ok;
+        Stream    ->
+            ?ERROR(ErrorCode, ErrorData) = FrameData,
+            ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
+            exit(Stream, {rsocket_error, ErrorType, ErrorData})
     end,
     {keep_state, Data}.
 
@@ -677,72 +710,14 @@ handle_request_stream(?REQUEST_STREAM_FLAGS(M, _F), ID, FrameData, Data) ->
     end.
 
 
-handle_request_n(?REQUEST_N_FLAGS, StreamID, FrameData, Data) ->
-    case rsocket_stream:find(self(), StreamID) of
-        undefined -> ok;
-        Stream    ->
-            ?REQUEST_N(N) = FrameData,
-            rsocket_stream:recv_request_n(Stream, N)
-    end,
-    {keep_state, Data}.
-
-
-handle_payload(?PAYLOAD_FLAGS(M, F, C, N), StreamID, FrameData, Data) ->
-    case rsocket_stream:find(self(), StreamID) of
-        undefined -> ok;
-        Stream    ->
-            Flags = lists:append([
-                                  [follows  || F =:= 1],
-                                  [complete || C =:= 1],
-                                  [next     || N =:= 1]
-                                 ]),
-            case M of
-                0 ->
-                    rsocket_stream:recv_payload(Stream, FrameData, Flags);
-                1 ->
-                    ?METADATA(_Size, Metadata, Payload) = FrameData,
-                    PayloadOptions = [{metadata, Metadata} | Flags],
-                    rsocket_stream:recv_payload(Stream, Payload, PayloadOptions)
-            end
-    end,
-    {keep_state, Data}.
-
-handle_lease(?LEASE_FLAGS(_M), FrameData, Data) ->
-    #data{
-       use_leasing = true,
-       send_lease_tracker = LeaseTracker
-      } = Data,
-    ?LEASE(Time, Count, _Metadata) = FrameData,
-    %% TODO: What to do with the (possibly included) metadata?
-    ok = rsocket_lease_tracker:start_lease(LeaseTracker, Time, Count),
-    {keep_state, Data}.
-
-handle_cancel(StreamID, Data) ->
-    case rsocket_stream:find(self(), StreamID) of
-        undefined -> ok;
-        Stream    -> exit(Stream, canceled)
-    end,
-    {keep_state, Data}.
-
-handle_error(?ERROR_FLAGS, 0, FrameData, _Data) ->
-    ?ERROR(ErrorCode, ErrorData) = FrameData,
-    ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
-    {stop, {rsocket_error, ErrorType, ErrorData}};
-
-handle_error(?ERROR_FLAGS, StreamID, FrameData, Data) ->
-    case rsocket_stream:find(self(), StreamID) of
-        undefined -> ok;
-        Stream    ->
-            ?ERROR(ErrorCode, ErrorData) = FrameData,
-            ErrorType = maps:get(ErrorCode, rsocket_frame:error_code_names()),
-            exit(Stream, {rsocket_error, ErrorType, ErrorData})
-    end,
-    {keep_state, Data}.
-
-
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+spend_leasing(#data{ use_leasing = false }) ->
+    infinity;
+spend_leasing(#data{ use_leasing = true, recv_lease_tracker = Tracker }) ->
+    rsocket_lease_tracker:spend_1(Tracker).
 
 transport_frame(Frame, #data{ transport_pid = Pid, transport_mod = Mod }) ->
     ok = Mod:send_frame(Pid, Frame).
