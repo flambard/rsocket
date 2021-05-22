@@ -292,14 +292,9 @@ connected(cast, {send_metadata_push, Metadata}, Data) ->
 connected({call, From}, {send_request_channel, N, Request, Options}, Data) ->
     #data{
        stream_handlers = StreamHandlers,
-       next_stream_id = ID,
-       use_leasing = UseLeasing,
-       send_lease_tracker = LeaseTracker
+       next_stream_id = ID
       } = Data,
-    Credit = case UseLeasing of
-                 false -> 1;
-                 true  -> rsocket_lease_tracker:spend_1(LeaseTracker)
-             end,
+    Credit = spend_send_lease_credit(Data),
     case {Credit, maps:find(channel, StreamHandlers)} of
         {0, _} ->
             {keep_state, Data, [{reply, From, {error, lease_expired}}]};
@@ -323,15 +318,9 @@ connected({call, From}, {send_request_channel, N, Request, Options}, Data) ->
 
 connected({call, From}, {send_request_fnf, Message, Options}, Data) ->
     #data{
-       next_stream_id = StreamID,
-       use_leasing = UseLeasing,
-       send_lease_tracker = LeaseTracker
+       next_stream_id = StreamID
       } = Data,
-    N = case UseLeasing of
-            false -> 1;
-            true  -> rsocket_lease_tracker:spend_1(LeaseTracker)
-        end,
-    case N of
+    case spend_send_lease_credit(Data) of
         0 ->
             {keep_state, Data, [{reply, From, {error, lease_expired}}]};
         _ ->
@@ -343,15 +332,9 @@ connected({call, From}, {send_request_fnf, Message, Options}, Data) ->
 
 connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
     #data{
-       next_stream_id = StreamID,
-       use_leasing = UseLeasing,
-       send_lease_tracker = LeaseTracker
+       next_stream_id = StreamID
       } = Data,
-    N = case UseLeasing of
-            false -> 1;
-            true  -> rsocket_lease_tracker:spend_1(LeaseTracker)
-        end,
-    case N of
+    case spend_send_lease_credit(Data) of
         0 ->
             {keep_state, Data, [{reply, F, {error, lease_expired}}]};
         _ ->
@@ -365,14 +348,9 @@ connected({call, F}, {send_request_response, Request, Handler, Opts}, Data) ->
 connected({call, F}, {send_request_stream, N, Request, Options}, Data) ->
     #data{
        stream_handlers = StreamHandlers,
-       next_stream_id = ID,
-       use_leasing = UseLeasing,
-       send_lease_tracker = LeaseTracker
+       next_stream_id = ID
       } = Data,
-    Credit = case UseLeasing of
-                 false -> 1;
-                 true  -> rsocket_lease_tracker:spend_1(LeaseTracker)
-             end,
+    Credit = spend_send_lease_credit(Data),
     case {Credit, maps:find(stream_requester, StreamHandlers)} of
         {0, _} ->
             {keep_state, Data, [{reply, F, {error, lease_expired}}]};
@@ -497,7 +475,7 @@ handle_frame(metadata_push, 0, _Flags, Metadata, Data) ->
     {keep_state, Data};
 
 handle_frame(request_channel, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
-    case spend_leasing(Data) of
+    case spend_recv_lease_credit(Data) of
         0 ->
             Frame = rsocket_frame:new_error(StreamID, rejected),
             transport_frame(Frame, Data),
@@ -507,7 +485,7 @@ handle_frame(request_channel, StreamID, Flags, FrameData, Data) when StreamID > 
     end;
 
 handle_frame(request_fnf, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
-    case spend_leasing(Data) of
+    case spend_recv_lease_credit(Data) of
         0 ->
             Frame = rsocket_frame:new_error(StreamID, rejected),
             transport_frame(Frame, Data),
@@ -517,7 +495,7 @@ handle_frame(request_fnf, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
     end;
 
 handle_frame(request_response, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
-    case spend_leasing(Data) of
+    case spend_recv_lease_credit(Data) of
         0 ->
             Frame = rsocket_frame:new_error(StreamID, rejected),
             transport_frame(Frame, Data),
@@ -527,7 +505,7 @@ handle_frame(request_response, StreamID, Flags, FrameData, Data) when StreamID >
     end;
 
 handle_frame(request_stream, StreamID, Flags, FrameData, Data) when StreamID > 0 ->
-    case spend_leasing(Data) of
+    case spend_recv_lease_credit(Data) of
         0 ->
             Frame = rsocket_frame:new_error(StreamID, rejected),
             transport_frame(Frame, Data),
@@ -714,9 +692,14 @@ handle_request_stream(?REQUEST_STREAM_FLAGS(M, _F), ID, FrameData, Data) ->
 %%% Internal functions
 %%%===================================================================
 
-spend_leasing(#data{ use_leasing = false }) ->
+spend_recv_lease_credit(#data{ use_leasing = false }) ->
     infinity;
-spend_leasing(#data{ use_leasing = true, recv_lease_tracker = Tracker }) ->
+spend_recv_lease_credit(#data{ use_leasing = true, recv_lease_tracker = Tracker }) ->
+    rsocket_lease_tracker:spend_1(Tracker).
+
+spend_send_lease_credit(#data{ use_leasing = false }) ->
+    infinity;
+spend_send_lease_credit(#data{ use_leasing = true, send_lease_tracker = Tracker }) ->
     rsocket_lease_tracker:spend_1(Tracker).
 
 transport_frame(Frame, #data{ transport_pid = Pid, transport_mod = Mod }) ->
