@@ -35,14 +35,14 @@ plan(Request, Space, MetadataLength, DataLength)
   when MetadataLength > Space ->
     Remaining = MetadataLength - Space,
     Following = plan(payload, ?PAYLOAD_SPACE, Remaining, DataLength),
-    [{Request, Space, 0} | Following];
+    [{Request, true, Space, 0} | Following];
 
 plan(Request, Space, MetadataLength, DataLength)
   when MetadataLength + DataLength > Space ->
     DataFragmentLength = Space - MetadataLength,
     Remaining = DataLength - DataFragmentLength,
     Following = plan(payload, ?PAYLOAD_SPACE, 0, Remaining),
-    [{Request, MetadataLength, DataFragmentLength} | Following];
+    [{Request, true, MetadataLength, DataFragmentLength} | Following];
 
 plan(Request, _Space, MetadataLength, DataLength) ->
-    [{Request, MetadataLength, DataLength}].
+    [{Request, false, MetadataLength, DataLength}].
