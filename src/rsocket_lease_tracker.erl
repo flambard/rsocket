@@ -1,12 +1,6 @@
 -module(rsocket_lease_tracker).
 
--export([
-         new/0,
-         start_lease/3,
-         spend_1/1,
-         expire/2
-        ]).
-
+-export([new/0, start_lease/3, spend_1/1, expire/2]).
 
 new() ->
     LeaseTracker = ets:new(lease, [public]),
@@ -15,7 +9,8 @@ new() ->
 
 start_lease(LeaseTracker, Time, Count) ->
     case ets:lookup(LeaseTracker, timer) of
-        []                       -> ok;
+        [] ->
+            ok;
         [{timer, PreviousTimer}] ->
             {ok, cancel} = timer:cancel(PreviousTimer)
     end,

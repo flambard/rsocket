@@ -4,40 +4,38 @@
 
 %% API
 -export([
-         error_code_names/0,
-         parse/1,
-         new_cancel/1,
-         new_keepalive/1,
-         new_metadata_push/1,
-         new_setup/5,
-         new_request_channel/4,
-         new_request_fnf/3,
-         new_request_response/3,
-         new_request_stream/4,
-         new_request_n/2,
-         new_payload/3,
-         new_lease/3,
-         new_error/2,
-         new_error/3
-        ]).
+    error_code_names/0,
+    parse/1,
+    new_cancel/1,
+    new_keepalive/1,
+    new_metadata_push/1,
+    new_setup/5,
+    new_request_channel/4,
+    new_request_fnf/3,
+    new_request_response/3,
+    new_request_stream/4,
+    new_request_n/2,
+    new_payload/3,
+    new_lease/3,
+    new_error/2,
+    new_error/3
+]).
 
-%%%===================================================================
-%%% API
 %%%===================================================================
 
 error_code_names() ->
     #{
-      16#001 => invalid_setup,
-      16#002 => unsupported_setup,
-      16#003 => rejected_setup,
-      16#004 => rejected_resume,
-      16#101 => connection_error,
-      16#102 => connection_close,
-      16#201 => application_error,
-      16#202 => rejected,
-      16#203 => canceled,
-      16#204 => invalid
-     }.
+        16#001 => invalid_setup,
+        16#002 => unsupported_setup,
+        16#003 => rejected_setup,
+        16#004 => rejected_resume,
+        16#101 => connection_error,
+        16#102 => connection_close,
+        16#201 => application_error,
+        16#202 => rejected,
+        16#203 => canceled,
+        16#204 => invalid
+    }.
 
 parse(Frame) ->
     ?FRAME_HEADER(StreamID, FrameType, Flags, FramePayload) = Frame,
@@ -45,23 +43,23 @@ parse(Frame) ->
 
 frame_types() ->
     #{
-      ?FRAME_TYPE_RESERVED         => reserved,
-      ?FRAME_TYPE_SETUP            => setup,
-      ?FRAME_TYPE_LEASE            => lease,
-      ?FRAME_TYPE_KEEPALIVE        => keepalive,
-      ?FRAME_TYPE_REQUEST_RESPONSE => request_response,
-      ?FRAME_TYPE_REQUEST_FNF      => request_fnf,
-      ?FRAME_TYPE_REQUEST_STREAM   => request_stream,
-      ?FRAME_TYPE_REQUEST_CHANNEL  => request_channel,
-      ?FRAME_TYPE_REQUEST_N        => request_n,
-      ?FRAME_TYPE_CANCEL           => cancel,
-      ?FRAME_TYPE_PAYLOAD          => payload,
-      ?FRAME_TYPE_ERROR            => error,
-      ?FRAME_TYPE_METADATA_PUSH    => metadata_push,
-      ?FRAME_TYPE_RESUME           => resume,
-      ?FRAME_TYPE_RESUME_OK        => resume_ok,
-      ?FRAME_TYPE_EXT              => ext
-     }.
+        ?FRAME_TYPE_RESERVED => reserved,
+        ?FRAME_TYPE_SETUP => setup,
+        ?FRAME_TYPE_LEASE => lease,
+        ?FRAME_TYPE_KEEPALIVE => keepalive,
+        ?FRAME_TYPE_REQUEST_RESPONSE => request_response,
+        ?FRAME_TYPE_REQUEST_FNF => request_fnf,
+        ?FRAME_TYPE_REQUEST_STREAM => request_stream,
+        ?FRAME_TYPE_REQUEST_CHANNEL => request_channel,
+        ?FRAME_TYPE_REQUEST_N => request_n,
+        ?FRAME_TYPE_CANCEL => cancel,
+        ?FRAME_TYPE_PAYLOAD => payload,
+        ?FRAME_TYPE_ERROR => error,
+        ?FRAME_TYPE_METADATA_PUSH => metadata_push,
+        ?FRAME_TYPE_RESUME => resume,
+        ?FRAME_TYPE_RESUME_OK => resume_ok,
+        ?FRAME_TYPE_EXT => ext
+    }.
 
 new_cancel(StreamID) ->
     Flags = ?CANCEL_FLAGS,
@@ -79,16 +77,30 @@ new_metadata_push(Metadata) ->
     M = ?METADATA_PUSH(Metadata),
     ?FRAME_HEADER(0, ?FRAME_TYPE_METADATA_PUSH, Flags, M).
 
-new_setup(TimeBetweenKeepaliveFrames, MaxLifetime,
-          MetadataMimeType, DataMimeType,
-          Options) ->
+new_setup(
+    TimeBetweenKeepaliveFrames,
+    MaxLifetime,
+    MetadataMimeType,
+    DataMimeType,
+    Options
+) ->
     L = bool_to_bit(proplists:is_defined(leasing, Options)),
     Flags = ?SETUP_FLAGS(0, 0, L),
     Payload = <<>>,
-    Setup = ?SETUP(0, 2, TimeBetweenKeepaliveFrames, MaxLifetime,
-                   byte_size(MetadataMimeType), MetadataMimeType,
-                   byte_size(DataMimeType), DataMimeType,
-                   Payload),
+    MetadataMimeTypeSize = byte_size(MetadataMimeType),
+    DataMimeTypeSize = byte_size(DataMimeType),
+    Setup =
+        ?SETUP(
+            0,
+            2,
+            TimeBetweenKeepaliveFrames,
+            MaxLifetime,
+            MetadataMimeTypeSize,
+            MetadataMimeType,
+            DataMimeTypeSize,
+            DataMimeType,
+            Payload
+        ),
     ?FRAME_HEADER(0, ?FRAME_TYPE_SETUP, Flags, Setup).
 
 new_request_channel(StreamID, N, Request, Options) ->
@@ -201,17 +213,19 @@ new_error(StreamID, ErrorType, ErrorData) ->
 
 error_codes() ->
     #{
-      invalid_setup     => 16#001,
-      unsupported_setup => 16#002,
-      rejected_setup    => 16#003,
-      rejected_resume   => 16#004,
-      connection_error  => 16#101,
-      connection_close  => 16#102,
-      application_error => 16#201,
-      rejected          => 16#202,
-      canceled          => 16#203,
-      invalid           => 16#204
-     }.
+        invalid_setup => 16#001,
+        unsupported_setup => 16#002,
+        rejected_setup => 16#003,
+        rejected_resume => 16#004,
+        connection_error => 16#101,
+        connection_close => 16#102,
+        application_error => 16#201,
+        rejected => 16#202,
+        canceled => 16#203,
+        invalid => 16#204
+    }.
 
-bool_to_bit(false) -> 0;
-bool_to_bit(true)  -> 1.
+bool_to_bit(false) ->
+    0;
+bool_to_bit(true) ->
+    1.

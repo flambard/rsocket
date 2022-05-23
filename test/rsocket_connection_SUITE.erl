@@ -4,9 +4,8 @@
 
 -include_lib("common_test/include/ct.hrl").
 
-
 suite() ->
-    [{timetrap,{seconds,30}}].
+    [{timetrap, {seconds, 30}}].
 
 init_per_suite(Config) ->
     application:ensure_started(gproc),
@@ -33,29 +32,26 @@ groups() ->
 
 all() ->
     [
-     test_open_close_connection,
-     test_client_push_metadata,
-     test_server_push_metadata,
-     test_client_not_honoring_lease,
-     test_client_honoring_lease,
-     test_client_uses_expired_lease
+        test_open_close_connection,
+        test_client_push_metadata,
+        test_server_push_metadata,
+        test_client_not_honoring_lease,
+        test_client_honoring_lease,
+        test_client_uses_expired_lease
     ].
-
 
 test_open_close_connection(_Config) ->
     Self = self(),
     Ref = make_ref(),
     AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
-    Config = #{ at_connect => AtConnectFun,
-                handlers => #{}
-              },
+    Config = #{at_connect => AtConnectFun, handlers => #{}},
     {ok, Listener} = rsocket_loopback:start_listener(Config),
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener),
     receive
         {connected, Ref, _ServerRSocket} ->
             ok
     after 10000 ->
-            exit(connection_failed)
+        exit(connection_failed)
     end,
     ok = rsocket:close_connection(ClientRSocket).
 
@@ -63,7 +59,7 @@ test_client_push_metadata(_Config) ->
     Self = self(),
     Ref = make_ref(),
     MetadataPushHandler = fun(Metadata) -> Self ! {metadata, Ref, Metadata} end,
-    Config = #{ handlers => #{ metadata_push => MetadataPushHandler } },
+    Config = #{handlers => #{metadata_push => MetadataPushHandler}},
     {ok, Listener} = rsocket_loopback:start_listener(Config),
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener),
     TheMetadata = <<"binary">>,
@@ -72,7 +68,7 @@ test_client_push_metadata(_Config) ->
         {metadata, Ref, TheMetadata} ->
             ok
     after 10000 ->
-            exit(connection_failed)
+        exit(connection_failed)
     end,
     ok = rsocket:close_connection(ClientRSocket).
 
@@ -80,10 +76,10 @@ test_server_push_metadata(_Config) ->
     Self = self(),
     Ref = make_ref(),
     AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
-    ServerConfig = #{ at_connect => AtConnectFun },
+    ServerConfig = #{at_connect => AtConnectFun},
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
     MetadataPushHandler = fun(Metadata) -> Self ! {metadata, Ref, Metadata} end,
-    ClientConfig = #{ handlers => #{ metadata_push => MetadataPushHandler }},
+    ClientConfig = #{handlers => #{metadata_push => MetadataPushHandler}},
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     receive
         {connected, Ref, ServerRSocket} ->
@@ -93,32 +89,28 @@ test_server_push_metadata(_Config) ->
                 {metadata, Ref, TheMetadata} ->
                     ok
             after 1000 ->
-                    exit(did_not_handle_metadata_push)
+                exit(did_not_handle_metadata_push)
             end
     after 10000 ->
-            exit(connection_failed)
+        exit(connection_failed)
     end,
     ok = rsocket:close_connection(ClientRSocket).
 
 test_client_not_honoring_lease(_Config) ->
     Self = self(),
     Ref = make_ref(),
-    FnfHandler = fun(#{request := Message}) ->
-                         Self ! {fnf, Ref, Message}
-                 end,
-    AtConnectFun = fun(RSocket) ->
-                           Self ! {connected, Ref, RSocket}
-                   end,
-    ServerConfig = #{ at_connect => AtConnectFun,
-                      handlers => #{ fire_and_forget => FnfHandler }},
+    FnfHandler = fun(#{request := Message}) -> Self ! {fnf, Ref, Message} end,
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    ServerConfig =
+        #{at_connect => AtConnectFun, handlers => #{fire_and_forget => FnfHandler}},
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    ClientConfig = #{ leasing => true },
+    ClientConfig = #{leasing => true},
     {ok, RSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     receive
         {connected, Ref, _ServerRSocket} ->
             ok
     after 10000 ->
-            exit(connection_failed)
+        exit(connection_failed)
     end,
     Message = <<"Unsolicited Request">>,
     {error, lease_expired} = rsocket:request_fnf(RSocket, Message),
@@ -126,23 +118,19 @@ test_client_not_honoring_lease(_Config) ->
         {fnf, Ref, Message} ->
             exit(request_fnf_went_through_without_lease)
     after 500 ->
-            ok
+        ok
     end,
     ok = rsocket:close_connection(RSocket).
 
 test_client_honoring_lease(_Config) ->
     Self = self(),
     Ref = make_ref(),
-    FnfHandler = fun(#{request := Message}) ->
-                         Self ! {fnf, Ref, Message}
-                 end,
-    AtConnectFun = fun(RSocket) ->
-                           Self ! {connected, Ref, RSocket}
-                   end,
-    ServerConfig = #{ at_connect => AtConnectFun,
-                      handlers => #{ fire_and_forget => FnfHandler }},
+    FnfHandler = fun(#{request := Message}) -> Self ! {fnf, Ref, Message} end,
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    ServerConfig =
+        #{at_connect => AtConnectFun, handlers => #{fire_and_forget => FnfHandler}},
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    ClientConfig = #{ leasing => true },
+    ClientConfig = #{leasing => true},
     {ok, RSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     receive
         {connected, Ref, ServerRSocket} ->
@@ -150,32 +138,31 @@ test_client_honoring_lease(_Config) ->
             NumberOfRequests = 1,
             ok = rsocket:lease(ServerRSocket, TimeToLive, NumberOfRequests)
     after 10000 ->
-            exit(connection_failed)
+        exit(connection_failed)
     end,
-    receive after 500 -> ok end,
+    receive
+    after 500 ->
+        ok
+    end,
     Message = <<"Expected Request">>,
     ok = rsocket:request_fnf(RSocket, Message),
     receive
         {fnf, Ref, Message} ->
             ok
     after 500 ->
-            exit(request_fnf_did_not_went_through_with_lease)
+        exit(request_fnf_did_not_went_through_with_lease)
     end,
     ok = rsocket:close_connection(RSocket).
 
 test_client_uses_expired_lease(_Config) ->
     Self = self(),
     Ref = make_ref(),
-    FnfHandler = fun(#{request := Message}) ->
-                         Self ! {fnf, Ref, Message}
-                 end,
-    AtConnectFun = fun(RSocket) ->
-                           Self ! {connected, Ref, RSocket}
-                   end,
-    ServerConfig = #{ at_connect => AtConnectFun,
-                      handlers => #{ fire_and_forget => FnfHandler }},
+    FnfHandler = fun(#{request := Message}) -> Self ! {fnf, Ref, Message} end,
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    ServerConfig =
+        #{at_connect => AtConnectFun, handlers => #{fire_and_forget => FnfHandler}},
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    ClientConfig = #{ leasing => true },
+    ClientConfig = #{leasing => true},
     {ok, RSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     receive
         {connected, Ref, ServerRSocket} ->
@@ -183,15 +170,18 @@ test_client_uses_expired_lease(_Config) ->
             NumberOfRequests = 1,
             ok = rsocket:lease(ServerRSocket, TimeToLive, NumberOfRequests)
     after 10000 ->
-            exit(connection_failed)
+        exit(connection_failed)
     end,
-    receive after 1000 -> ok end,
+    receive
+    after 1000 ->
+        ok
+    end,
     Message = <<"Expected Request">>,
     {error, lease_expired} = rsocket:request_fnf(RSocket, Message),
     receive
         {fnf, Ref, Message} ->
             exit(request_fnf_went_through_with_expired_lease)
     after 500 ->
-            ok
+        ok
     end,
     ok = rsocket:close_connection(RSocket).

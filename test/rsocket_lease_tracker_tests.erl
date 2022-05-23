@@ -22,7 +22,10 @@ expire_test() ->
     ok = rsocket_lease_tracker:start_lease(Lease, 100, 5),
     5 = rsocket_lease_tracker:spend_1(Lease),
     4 = rsocket_lease_tracker:spend_1(Lease),
-    receive after 200 -> ok end,
+    receive
+    after 200 ->
+        ok
+    end,
     0 = rsocket_lease_tracker:spend_1(Lease),
     0 = rsocket_lease_tracker:spend_1(Lease).
 
@@ -35,6 +38,9 @@ restart_lease_overrides_lease_test() ->
     10 = rsocket_lease_tracker:spend_1(Lease),
     9 = rsocket_lease_tracker:spend_1(Lease),
     8 = rsocket_lease_tracker:spend_1(Lease),
-    receive after 200 -> ok end,
+    receive
+    after 200 ->
+        ok
+    end,
     0 = rsocket_lease_tracker:spend_1(Lease),
     0 = rsocket_lease_tracker:spend_1(Lease).

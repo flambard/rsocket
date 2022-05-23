@@ -1,16 +1,11 @@
-{application, rsocket,
- [{description, "An OTP application"},
-  {vsn, "0.1.0"},
-  {registered, []},
-  {mod, {rsocket_app, []}},
-  {applications,
-   [kernel,
-    stdlib,
-    gproc
-   ]},
-  {env,[]},
-  {modules, []},
-
-  {licenses, ["Apache 2.0"]},
-  {links, []}
- ]}.
+{application, rsocket, [
+    {description, "An OTP application"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {rsocket_app, []}},
+    {applications, [kernel, stdlib, gproc]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

@@ -4,9 +4,8 @@
 
 -include_lib("common_test/include/ct.hrl").
 
-
 suite() ->
-    [{timetrap,{seconds,30}}].
+    [{timetrap, {seconds, 30}}].
 
 init_per_suite(Config) ->
     application:ensure_started(gproc),
@@ -32,20 +31,13 @@ groups() ->
     [].
 
 all() ->
-    [
-     test_client_fnf,
-     test_client_fnf_with_metadata,
-     test_server_fnf
-    ].
-
+    [test_client_fnf, test_client_fnf_with_large_data, test_server_fnf].
 
 test_client_fnf(_Config) ->
     Self = self(),
     Ref = make_ref(),
-    FnfHandler = fun(#{request := Message}) ->
-                         Self ! {fnf, Ref, Message}
-                 end,
-    Config = #{ handlers => #{ fire_and_forget => FnfHandler }},
+    FnfHandler = fun(#{request := Message}) -> Self ! {fnf, Ref, Message} end,
+    Config = #{handlers => #{fire_and_forget => FnfHandler}},
     {ok, Listener} = rsocket_loopback:start_listener(Config),
     {ok, RSocket} = rsocket_loopback:connect(Listener),
     Message = <<"The Message">>,
@@ -54,26 +46,28 @@ test_client_fnf(_Config) ->
         {fnf, Ref, Message} ->
             ok = rsocket:close_connection(RSocket)
     after 1000 ->
-            exit(did_not_handle_fnf_request)
+        exit(did_not_handle_fnf_request)
     end.
 
-test_client_fnf_with_metadata(_Config) ->
+test_client_fnf_with_large_data(_Config) ->
     Self = self(),
     Ref = make_ref(),
-    FnfHandler = fun(#{request := Message, metadata := Metadata}) ->
-                         Self ! {fnf, Ref, Message, Metadata}
-                 end,
-    Config = #{ handlers => #{ fire_and_forget => FnfHandler }},
+    FnfHandler =
+        fun(#{request := Message, metadata := Metadata}) ->
+            Self ! {fnf, Ref, Message, Metadata}
+        end,
+    Config = #{handlers => #{fire_and_forget => FnfHandler}},
     {ok, Listener} = rsocket_loopback:start_listener(Config),
     {ok, RSocket} = rsocket_loopback:connect(Listener),
-    Message = <<"The Message">>,
-    Metadata = <<"About The Message">>,
+    Message = crypto:strong_rand_bytes(20000000),
+    %% crypto:strong_rand_bytes(18000000),
+    Metadata = <<"Metadata">>,
     ok = rsocket:request_fnf(RSocket, Message, [{metadata, Metadata}]),
     receive
         {fnf, Ref, Message, Metadata} ->
             ok
     after 1000 ->
-            exit(did_not_handle_fnf_request)
+        exit(did_not_handle_fnf_request)
     end,
     ok = rsocket:close_connection(RSocket).
 
@@ -81,12 +75,10 @@ test_server_fnf(_Config) ->
     Self = self(),
     Ref = make_ref(),
     AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
-    ServerConfig = #{ at_connect => AtConnectFun },
+    ServerConfig = #{at_connect => AtConnectFun},
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    FnfHandler = fun(#{ request := Message }) ->
-                         Self ! {fnf, Ref, Message}
-                 end,
-    ClientConfig = #{ handlers => #{ fire_and_forget => FnfHandler }},
+    FnfHandler = fun(#{request := Message}) -> Self ! {fnf, Ref, Message} end,
+    ClientConfig = #{handlers => #{fire_and_forget => FnfHandler}},
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     receive
         {connected, Ref, ServerRSocket} ->
@@ -96,8 +88,8 @@ test_server_fnf(_Config) ->
                 {fnf, Ref, Message} ->
                     ok = rsocket:close_connection(ClientRSocket)
             after 1000 ->
-                    exit(did_not_handle_fnf_request)
+                exit(did_not_handle_fnf_request)
             end
     after 10000 ->
-            exit(connection_failed)
+        exit(connection_failed)
     end.

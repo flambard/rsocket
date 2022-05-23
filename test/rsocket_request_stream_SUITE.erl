@@ -4,9 +4,8 @@
 
 -include_lib("common_test/include/ct.hrl").
 
-
 suite() ->
-    [{timetrap,{seconds,30}}].
+    [{timetrap, {seconds, 30}}].
 
 init_per_suite(Config) ->
     application:ensure_started(gproc),
@@ -33,49 +32,41 @@ groups() ->
 
 all() ->
     [
-     test_request_stream,
-     test_responder_tries_to_send_too_much,
-     test_responder_completes_stream,
-     test_requester_cancels_stream,
-     test_responder_sends_error
+        test_request_stream,
+        test_responder_tries_to_send_too_much,
+        test_responder_completes_stream,
+        test_requester_cancels_stream,
+        test_responder_sends_error
     ].
 
 test_request_stream(_Config) ->
     Request = <<"PING">>,
     Ref = make_ref(),
     Self = self(),
-    AtConnectFun = fun(RSocket) ->
-                           Self ! {connected, Ref, RSocket}
-                   end,
-    ServerConfig = #{ at_connect => AtConnectFun,
-                      handlers =>
-                          #{ stream_responder =>
-                                 {
-                                  rsocket_passthrough_stream_responder,
-                                  [Ref, Self]
-                                 }
-                           }},
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    ServerConfig =
+        #{
+            at_connect => AtConnectFun,
+            handlers => #{stream_responder => {rsocket_passthrough_stream_responder, [Ref, Self]}}
+        },
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    ClientConfig = #{ handlers =>
-                          #{ stream_requester =>
-                                 {
-                                  rsocket_passthrough_stream_requester,
-                                  [Ref, Self]
-                                 }
-                           }},
+    ClientConfig =
+        #{handlers => #{stream_requester => {rsocket_passthrough_stream_requester, [Ref, Self]}}},
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     ServerRSocket =
         receive
-            {connected, Ref, RSocket} -> RSocket
+            {connected, Ref, RSocket} ->
+                RSocket
         after 10000 ->
-                exit(connection_failed)
+            exit(connection_failed)
         end,
     N = 3,
     Options = [],
     {ok, StreamID} = rsocket:request_stream(ClientRSocket, N, Request, Options),
     Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
-        {responder, handle_request_n, Ref, N} -> ok
+        {responder, handle_request_n, Ref, N} ->
+            ok
     end,
     P1 = <<"ONE">>,
     P2 = <<"TWO">>,
@@ -84,46 +75,39 @@ test_request_stream(_Config) ->
     ok = rsocket_passthrough_stream_responder:send_payload(Responder, P2, []),
     ok = rsocket_passthrough_stream_responder:send_payload(Responder, P3, []),
     receive
-        {requester, handle_payload, Ref, P1, _} -> ok
+        {requester, handle_payload, Ref, P1, _} ->
+            ok
     end,
     receive
-        {requester, handle_payload, Ref, P2, _} -> ok
+        {requester, handle_payload, Ref, P2, _} ->
+            ok
     end,
     receive
-        {requester, handle_payload, Ref, P3, _} -> ok
+        {requester, handle_payload, Ref, P3, _} ->
+            ok
     end,
     ok = rsocket:close_connection(ClientRSocket).
-
 
 test_responder_tries_to_send_too_much(_Config) ->
     Request = <<"PING">>,
     Ref = make_ref(),
     Self = self(),
-    AtConnectFun = fun(RSocket) ->
-                           Self ! {connected, Ref, RSocket}
-                   end,
-    ServerConfig = #{ at_connect => AtConnectFun,
-                      handlers =>
-                          #{ stream_responder =>
-                                 {
-                                  rsocket_passthrough_stream_responder,
-                                  [Ref, Self]
-                                 }
-                           }},
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    ServerConfig =
+        #{
+            at_connect => AtConnectFun,
+            handlers => #{stream_responder => {rsocket_passthrough_stream_responder, [Ref, Self]}}
+        },
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    ClientConfig = #{ handlers =>
-                          #{ stream_requester =>
-                                 {
-                                  rsocket_passthrough_stream_requester,
-                                  [Ref, Self]
-                                 }
-                           }},
+    ClientConfig =
+        #{handlers => #{stream_requester => {rsocket_passthrough_stream_requester, [Ref, Self]}}},
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     ServerRSocket =
         receive
-            {connected, Ref, RSocket} -> RSocket
+            {connected, Ref, RSocket} ->
+                RSocket
         after 10000 ->
-                exit(connection_failed)
+            exit(connection_failed)
         end,
     N = 2,
     Options = [],
@@ -131,7 +115,8 @@ test_responder_tries_to_send_too_much(_Config) ->
     Requester = rsocket_stream:find(ClientRSocket, StreamID),
     Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
-        {responder, handle_request_n, Ref, N} -> ok
+        {responder, handle_request_n, Ref, N} ->
+            ok
     end,
     P1 = <<"ONE">>,
     P2 = <<"TWO">>,
@@ -141,65 +126,59 @@ test_responder_tries_to_send_too_much(_Config) ->
     {error, no_credits} =
         rsocket_passthrough_stream_responder:send_payload(Responder, P3, []),
     receive
-        {requester, handle_payload, Ref, P1, _} -> ok
+        {requester, handle_payload, Ref, P1, _} ->
+            ok
     end,
     receive
-        {requester, handle_payload, Ref, P2, _} -> ok
+        {requester, handle_payload, Ref, P2, _} ->
+            ok
     end,
     receive
         {requester, handle_payload, Ref, P3, _} ->
             exit(payload_arrived_without_credit)
     after 500 ->
-            ok
+        ok
     end,
     ok = rsocket_passthrough_stream_requester:send_request_n(Requester, 1),
     receive
-        {responder, handle_request_n, Ref, 1} -> ok
+        {responder, handle_request_n, Ref, 1} ->
+            ok
     end,
     ok = rsocket_passthrough_stream_responder:send_payload(Responder, P1, []),
     {error, no_credits} =
         rsocket_passthrough_stream_responder:send_payload(Responder, P2, []),
     receive
-        {requester, handle_payload, Ref, P1, _} -> ok
+        {requester, handle_payload, Ref, P1, _} ->
+            ok
     end,
     receive
         {requester, handle_payload, Ref, P2, _} ->
             exit(payload_arrived_without_credit)
     after 500 ->
-            ok
+        ok
     end,
     ok = rsocket:close_connection(ClientRSocket).
-
 
 test_responder_completes_stream(_Config) ->
     Request = <<"PING">>,
     Ref = make_ref(),
     Self = self(),
-    AtConnectFun = fun(RSocket) ->
-                           Self ! {connected, Ref, RSocket}
-                   end,
-    ServerConfig = #{ at_connect => AtConnectFun,
-                      handlers =>
-                          #{ stream_responder =>
-                                 {
-                                  rsocket_passthrough_stream_responder,
-                                  [Ref, Self]
-                                 }
-                           }},
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    ServerConfig =
+        #{
+            at_connect => AtConnectFun,
+            handlers => #{stream_responder => {rsocket_passthrough_stream_responder, [Ref, Self]}}
+        },
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    ClientConfig = #{ handlers =>
-                          #{ stream_requester =>
-                                 {
-                                  rsocket_passthrough_stream_requester,
-                                  [Ref, Self]
-                                 }
-                           }},
+    ClientConfig =
+        #{handlers => #{stream_requester => {rsocket_passthrough_stream_requester, [Ref, Self]}}},
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     ServerRSocket =
         receive
-            {connected, Ref, RSocket} -> RSocket
+            {connected, Ref, RSocket} ->
+                RSocket
         after 10000 ->
-                exit(connection_failed)
+            exit(connection_failed)
         end,
     N = 3,
     Options = [],
@@ -207,7 +186,8 @@ test_responder_completes_stream(_Config) ->
     Requester = rsocket_stream:find(ClientRSocket, StreamID),
     Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
-        {responder, handle_request_n, Ref, N} -> ok
+        {responder, handle_request_n, Ref, N} ->
+            ok
     end,
     RequesterMonitor = erlang:monitor(process, Requester),
     ResponderMonitor = erlang:monitor(process, Responder),
@@ -216,13 +196,14 @@ test_responder_completes_stream(_Config) ->
     P1 = <<"ONE">>,
     P2 = <<"TWO">>,
     ok = rsocket_passthrough_stream_responder:send_payload(Responder, P1, []),
-    ok = rsocket_passthrough_stream_responder:send_payload(
-           Responder, P2, [complete]),
+    ok = rsocket_passthrough_stream_responder:send_payload(Responder, P2, [complete]),
     receive
-        {requester, handle_payload, Ref, P1, _} -> ok
+        {requester, handle_payload, Ref, P1, _} ->
+            ok
     end,
     receive
-        {requester, handle_payload, Ref, P2, _} -> ok
+        {requester, handle_payload, Ref, P2, _} ->
+            ok
     end,
     receive
         {'DOWN', ClientMonitor, process, ClientRSocket, _} ->
@@ -230,52 +211,42 @@ test_responder_completes_stream(_Config) ->
         {'DOWN', ServerMonitor, process, ServerRSocket, _} ->
             exit(server_rsocket_terminated)
     after 1000 ->
-            ok
+        ok
     end,
     receive
         {'DOWN', RequesterMonitor, process, Requester, _} ->
             ok
     after 100 ->
-            exit(requester_did_not_terminate)
+        exit(requester_did_not_terminate)
     end,
     receive
         {'DOWN', ResponderMonitor, process, Responder, _} ->
             ok
     after 100 ->
-            exit(responder_did_not_terminate)
+        exit(responder_did_not_terminate)
     end,
     ok = rsocket:close_connection(ClientRSocket).
-
 
 test_requester_cancels_stream(_Config) ->
     Request = <<"PING">>,
     Ref = make_ref(),
     Self = self(),
-    AtConnectFun = fun(RSocket) ->
-                           Self ! {connected, Ref, RSocket}
-                   end,
-    ServerConfig = #{ at_connect => AtConnectFun,
-                      handlers =>
-                          #{ stream_responder =>
-                                 {
-                                  rsocket_passthrough_stream_responder,
-                                  [Ref, Self]
-                                 }
-                           }},
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    ServerConfig =
+        #{
+            at_connect => AtConnectFun,
+            handlers => #{stream_responder => {rsocket_passthrough_stream_responder, [Ref, Self]}}
+        },
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    ClientConfig = #{ handlers =>
-                          #{ stream_requester =>
-                                 {
-                                  rsocket_passthrough_stream_requester,
-                                  [Ref, Self]
-                                 }
-                           }},
+    ClientConfig =
+        #{handlers => #{stream_requester => {rsocket_passthrough_stream_requester, [Ref, Self]}}},
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     ServerRSocket =
         receive
-            {connected, Ref, RSocket} -> RSocket
+            {connected, Ref, RSocket} ->
+                RSocket
         after 10000 ->
-                exit(connection_failed)
+            exit(connection_failed)
         end,
     N = 3,
     Options = [],
@@ -283,17 +254,20 @@ test_requester_cancels_stream(_Config) ->
     Requester = rsocket_stream:find(ClientRSocket, StreamID),
     Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
-        {responder, handle_request_n, Ref, N} -> ok
+        {responder, handle_request_n, Ref, N} ->
+            ok
     end,
     P1 = <<"ONE">>,
     P2 = <<"TWO">>,
     ok = rsocket_passthrough_stream_responder:send_payload(Responder, P1, []),
     ok = rsocket_passthrough_stream_responder:send_payload(Responder, P2, []),
     receive
-        {requester, handle_payload, Ref, P1, _} -> ok
+        {requester, handle_payload, Ref, P1, _} ->
+            ok
     end,
     receive
-        {requester, handle_payload, Ref, P2, _} -> ok
+        {requester, handle_payload, Ref, P2, _} ->
+            ok
     end,
     RequesterMonitor = erlang:monitor(process, Requester),
     ResponderMonitor = erlang:monitor(process, Responder),
@@ -306,52 +280,42 @@ test_requester_cancels_stream(_Config) ->
         {'DOWN', ServerMonitor, process, ServerRSocket, _} ->
             exit(server_rsocket_terminated)
     after 1000 ->
-            ok
+        ok
     end,
     receive
         {'DOWN', RequesterMonitor, process, Requester, _} ->
             ok
     after 100 ->
-            exit(requester_did_not_terminate)
+        exit(requester_did_not_terminate)
     end,
     receive
         {'DOWN', ResponderMonitor, process, Responder, _} ->
             ok
     after 100 ->
-            exit(responder_did_not_terminate)
+        exit(responder_did_not_terminate)
     end,
     ok = rsocket:close_connection(ClientRSocket).
-
 
 test_responder_sends_error(_Config) ->
     Request = <<"PING">>,
     Ref = make_ref(),
     Self = self(),
-    AtConnectFun = fun(RSocket) ->
-                           Self ! {connected, Ref, RSocket}
-                   end,
-    ServerConfig = #{ at_connect => AtConnectFun,
-                      handlers =>
-                          #{ stream_responder =>
-                                 {
-                                  rsocket_passthrough_stream_responder,
-                                  [Ref, Self]
-                                 }
-                           }},
+    AtConnectFun = fun(RSocket) -> Self ! {connected, Ref, RSocket} end,
+    ServerConfig =
+        #{
+            at_connect => AtConnectFun,
+            handlers => #{stream_responder => {rsocket_passthrough_stream_responder, [Ref, Self]}}
+        },
     {ok, Listener} = rsocket_loopback:start_listener(ServerConfig),
-    ClientConfig = #{ handlers =>
-                          #{ stream_requester =>
-                                 {
-                                  rsocket_passthrough_stream_requester,
-                                  [Ref, Self]
-                                 }
-                           }},
+    ClientConfig =
+        #{handlers => #{stream_requester => {rsocket_passthrough_stream_requester, [Ref, Self]}}},
     {ok, ClientRSocket} = rsocket_loopback:connect(Listener, ClientConfig),
     ServerRSocket =
         receive
-            {connected, Ref, RSocket} -> RSocket
+            {connected, Ref, RSocket} ->
+                RSocket
         after 10000 ->
-                exit(connection_failed)
+            exit(connection_failed)
         end,
     N = 3,
     Options = [],
@@ -359,37 +323,43 @@ test_responder_sends_error(_Config) ->
     Requester = rsocket_stream:find(ClientRSocket, StreamID),
     Responder = rsocket_stream:await(ServerRSocket, StreamID),
     receive
-        {responder, handle_request_n, Ref, N} -> ok
+        {responder, handle_request_n, Ref, N} ->
+            ok
     end,
     P1 = <<"ONE">>,
     ok = rsocket_passthrough_stream_responder:send_payload(Responder, P1, []),
     receive
-        {requester, handle_payload, Ref, P1, _} -> ok
+        {requester, handle_payload, Ref, P1, _} ->
+            ok
     end,
     RequesterMonitor = erlang:monitor(process, Requester),
     ResponderMonitor = erlang:monitor(process, Responder),
     ClientMonitor = erlang:monitor(process, ClientRSocket),
     ServerMonitor = erlang:monitor(process, ServerRSocket),
-    ok = rsocket_passthrough_stream_responder:send_error(
-           Responder, application_error, <<"Something went wrong">>),
+    ok =
+        rsocket_passthrough_stream_responder:send_error(
+            Responder,
+            application_error,
+            <<"Something went wrong">>
+        ),
     receive
         {'DOWN', ClientMonitor, process, ClientRSocket, _} ->
             exit(client_rsocket_terminated);
         {'DOWN', ServerMonitor, process, ServerRSocket, _} ->
             exit(server_rsocket_terminated)
     after 1000 ->
-            ok
+        ok
     end,
     receive
         {'DOWN', RequesterMonitor, process, Requester, _} ->
             ok
     after 100 ->
-            exit(requester_did_not_terminate)
+        exit(requester_did_not_terminate)
     end,
     receive
         {'DOWN', ResponderMonitor, process, Responder, _} ->
             ok
     after 100 ->
-            exit(responder_did_not_terminate)
+        exit(responder_did_not_terminate)
     end,
     ok = rsocket:close_connection(ClientRSocket).

@@ -1,22 +1,12 @@
 -module(rsocket_channel).
 
 %% API
--export([
-         cancel/1,
-         error/3,
-         payload/3,
-         request_n/2
-        ]).
+-export([cancel/1, error/3, payload/3, request_n/2]).
 
 -callback init(Request :: map(), Args :: term()) -> {ok, State :: term()}.
-
--callback handle_payload(Payload :: binary(),
-                         Options :: list(),
-                         State :: term()) ->
-    term().
-
+-callback handle_payload(Payload :: binary(), Options :: list(), State :: term()) ->
+                            term().
 -callback handle_request_n(N :: pos_integer(), State :: term()) -> term().
-
 
 %%%===================================================================
 %%% API
@@ -33,7 +23,6 @@ payload(Stream, Payload, Options) ->
 
 request_n(Stream, N) ->
     rsocket_stream:send_request_n(Stream, N).
-
 
 %%%===================================================================
 %%% Internal functions
